@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><?= APP_CONFIG.appName ?> | <?= APP_CONFIG.fullName ?></title>
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div id="app-loading" class="app-loading">
+    <div class="loading-spinner"></div>
+    <div>Loading <?= APP_CONFIG.appName ?>...</div>
+  </div>
+
+  <?!= include('Login'); ?>
+
+  <div id="app" class="app-shell hidden">
+    <?!= include('Sidebar'); ?>
+
+    <main class="main-area">
+      <?!= include('TopNavbar'); ?>
+
+      <section id="page-container" class="page-container">
+        <!-- Dynamic page content -->
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <?!= include('Scripts'); ?>
+</body>
+</html>

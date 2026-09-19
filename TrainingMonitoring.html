@@ -1,0 +1,80 @@
+<div class="page-header">
+  <div>
+    <h1>Training Monitoring</h1>
+    <p>Monitoring program training dan progres trainee berdasarkan Training Request & Training Participants.</p>
+  </div>
+  <div class="tm-updated" id="tmUpdated">-</div>
+</div>
+
+<div class="grid grid-3 tm-kpi-grid">
+  <div class="card stat-card tm-kpi"><div class="label">Program Training Active</div><div class="value" id="tmKpiActive">0</div><div class="hint">Training Requests aktif</div></div>
+  <div class="card stat-card tm-kpi"><div class="label">Trainee Participants</div><div class="value" id="tmKpiParticipants">0</div><div class="hint">Total peserta</div></div>
+  <div class="card stat-card tm-kpi"><div class="label">Program Training Close</div><div class="value" id="tmKpiClose">0</div><div class="hint">Program selesai</div></div>
+  <div class="card stat-card tm-kpi"><div class="label">In Progress</div><div class="value" id="tmKpiProgress">0</div><div class="hint">Inclass, Praktek 1, Praktek 2, OJT</div></div>
+  <div class="card stat-card tm-kpi"><div class="label">Re'assesment</div><div class="value" id="tmKpiReassess">0</div><div class="hint">Peserta perlu reassessment</div></div>
+  <div class="card stat-card tm-kpi"><div class="label">Hold</div><div class="value" id="tmKpiHold">0</div><div class="hint">Peserta berstatus Hold</div></div>
+</div>
+
+<div class="card tm-filter-card">
+  <div class="tm-filter-row">
+    <div class="tm-filter-group tm-period-group">
+      <label>Periode Dashboard KPI</label>
+      <select id="tmPeriod">
+        <option value="all">Semua</option>
+        <option value="custom">Custom Date</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+    </div>
+    <div class="tm-date-group hidden" id="tmCustomDates">
+      <div><label>From Date</label><input type="date" id="tmFromDate"></div>
+      <div><label>To Date</label><input type="date" id="tmToDate"></div>
+    </div>
+    <div class="tm-date-group hidden" id="tmWeekSelect">
+      <div><label>Week Start</label><input type="date" id="tmWeekDate"></div>
+    </div>
+    <div class="tm-date-group hidden" id="tmMonthSelect">
+      <div><label>Month</label><input type="month" id="tmMonth"></div>
+    </div>
+    <div class="tm-date-group hidden" id="tmYearSelect">
+      <div><label>Year</label><select id="tmYear"></select></div>
+    </div>
+    <button class="btn btn-primary tm-apply" id="tmApply">Apply KPI</button>
+  </div>
+</div>
+
+<div class="card tm-table-card">
+  <div class="toolbar tm-program-toolbar">
+    <div class="toolbar-left" style="flex-wrap:wrap;gap:8px;">
+      <select class="tm-program-filter" id="tmTrainingCodeFilter"><option value="">All Training Code</option></select>
+      <select class="tm-program-filter" id="tmTrainingUnitFilter"><option value="">All Training Unit</option></select>
+      <input class="search" id="tmSearch" placeholder="Search Request ID, Program, Jobsite, PIC Training...">
+    </div>
+    <div class="toolbar-right"><span class="tm-result" id="tmResultCount">0 data</span></div>
+  </div>
+  <div class="tm-filter-note"><i class="bi bi-info-circle"></i> Filter Training Code dan Training Unit hanya memengaruhi tabel Program Training. Filter periode di atas hanya memengaruhi KPI.</div>
+  <div class="table-wrap"><table class="tm-table"><thead id="tmHead"></thead><tbody id="tmBody"></tbody></table></div>
+  <div id="tmEmpty" class="empty-state hidden"><div class="empty-icon"><i class="bi bi-clipboard2-data"></i></div><h3>Tidak ada data</h3><p>Tidak ada program training yang sesuai dengan filter.</p></div>
+</div>
+
+<div class="tm-detail-backdrop hidden" id="tmDetailBackdrop">
+  <div class="tm-detail-modal">
+    <div class="tm-detail-header"><div><h3 id="tmDetailTitle">Training Detail</h3><p id="tmDetailSubtitle"></p></div><button class="icon-btn" id="tmDetailClose">×</button></div>
+    <div class="tm-detail-body" id="tmDetailBody"></div>
+  </div>
+</div>
+
+<div class="tm-edit-backdrop hidden" id="tmEditBackdrop">
+  <div class="tm-edit-modal">
+    <div class="tm-detail-header">
+      <div><h3 id="tmEditTitle">Edit Training Data</h3><p id="tmEditSubtitle"></p></div>
+      <button class="icon-btn" id="tmEditClose">×</button>
+    </div>
+    <div class="tm-edit-body" id="tmEditBody"></div>
+    <div class="tm-edit-footer">
+      <button class="btn btn-light" id="tmEditCancel">Cancel</button>
+      <button class="btn btn-primary" id="tmEditSave">Save Changes</button>
+    </div>
+  </div>
+</div>

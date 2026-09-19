@@ -1,0 +1,1554 @@
+<script>
+const pageMeta = {
+  Home:{title:'Home', breadcrumb:'Home'},
+  Dashboard:{title:'Dashboard', breadcrumb:'Dashboard'},
+  EmployeeMaster:{title:'Employee Master', breadcrumb:'Master Data / Employee Master'},
+  EmployeeVersatility:{title:'Employee Versatility', breadcrumb:'Master Data / Employee Versatility'},
+  TrainingRequest:{title:'Training Request', breadcrumb:'Training Management / Training Request'},
+  TrainingAttendance:{title:'Training Attendance', breadcrumb:'Training Management / Training Attendance'},
+  TrainingMonitoring:{title:'Training Monitoring', breadcrumb:'Training Management / Training Monitoring'},
+  CandidateRegistration:{title:'Candidate Registration', breadcrumb:'Recruitment Management / Candidate Registration'},
+  OrientationAttendance:{title:'Orientation Attendance', breadcrumb:'Recruitment Management / Orientation Attendance'},
+  RecruitmentMonitoring:{title:'Recruitment Monitoring', breadcrumb:'Recruitment Management / Recruitment Monitoring'},
+  EmployeeAssessment:{title:'Employee Assessment', breadcrumb:'Refreshment Management / Employee Assessment'},
+  EmployeeInduction:{title:'Employee Induction', breadcrumb:'Refreshment Management / Employee Induction'},
+  SimulatorTraining:{title:'Simulator Training', breadcrumb:'Refreshment Management / Simulator Training'},
+  TrainingModules:{title:'Training Modules', breadcrumb:'Document Management / Training Modules'},
+  Forms:{title:'Forms', breadcrumb:'Document Management / Forms'},
+  JSA:{title:'JSA', breadcrumb:'Document Management / JSA'},
+  SOP:{title:'SOP', breadcrumb:'Document Management / SOP'},
+  WorkInstruction:{title:'Work Instruction', breadcrumb:'Document Management / Work Instruction'},
+  SMKPDocuments:{title:'SMKP Documents', breadcrumb:'Document Management / SMKP Documents'},
+  JobCreate:{title:'Job Create', breadcrumb:'Job Management / Job Create'},
+  JobList:{title:'Job List', breadcrumb:'Job Management / Job List'},
+  JobHistory:{title:'Job History', breadcrumb:'Job Management / Job History'},
+  About:{title:'About', breadcrumb:'Information / About'}
+};
+
+const permissions = {
+  Administrator: Object.keys(pageMeta),
+  Instruktur: Object.keys(pageMeta).filter(p => !['JobCreate','TrainingRequest'].includes(p)),
+  Guest: ['Home','Dashboard','TrainingModules','Forms','JSA','SOP','WorkInstruction','SMKPDocuments','About']
+};
+
+const roleDisplayNames = { Administrator: 'Admin TC GPE', Instruktur: 'Trainer TC GPE', Guest: 'Guest' };
+const ROLE_ALIASES = { Trainer: 'Instruktur' };
+const roleInitials = { Administrator: 'AD', Instruktur: 'TR', Guest: 'GV' };
+
+let currentToken = null;
+let currentRole = null;
+let currentPage = 'Home';
+
+// Wraps google.script.run so any "session expired" style error automatically
+// signs the user out and returns to the login screen, instead of leaving
+// the page stuck or silently failing.
+function scriptRun(onSuccess, onFailure) {
+  return google.script.run
+    .withSuccessHandler(onSuccess)
+    .withFailureHandler(function(err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (/session expired/i.test(msg) || /invalid session role/i.test(msg)) {
+        showToast('Your session has expired. Please sign in again.');
+        logout();
+        return;
+      }
+      if (onFailure) onFailure(err);
+    });
+}
+
+function applyAccessVisibility() {
+  document.querySelectorAll('[data-page]').forEach(el => {
+    const page = el.dataset.page;
+    const allowed = permissions[currentRole] ? permissions[currentRole].includes(page) : false;
+    el.style.display = allowed ? '' : 'none';
+  });
+  document.querySelectorAll('.role-admin').forEach(el => {
+    if (!el.dataset.page) el.style.display = currentRole === 'Administrator' ? '' : 'none';
+  });
+  document.querySelectorAll('.role-trainer').forEach(el => {
+    if (!el.dataset.page) el.style.display = (currentRole === 'Administrator' || currentRole === 'Instruktur') ? '' : 'none';
+  });
+}
+
+function toggleSidebar(open) {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  sb.classList.toggle('open', !!open);
+  ov.classList.toggle('open', !!open);
+}
+
+function updateActiveNavigation() {
+  document.querySelectorAll('.nav-item, .nav-subitem').forEach(el => el.classList.remove('active'));
+  const active = document.querySelector('[data-page="' + currentPage + '"]');
+  if (active) {
+    active.classList.add('active');
+    const group = active.closest('.nav-section-group');
+    if (group) {
+      group.classList.add('open');
+      const btn = group.querySelector('.nav-section-toggle');
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+    }
+  }
+  const meta = pageMeta[currentPage] || {};
+  document.getElementById('breadcrumb').textContent = meta.breadcrumb || currentPage;
+}
+
+function bindSectionToggles() {
+  document.querySelectorAll('.nav-section-toggle').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const group = this.closest('.nav-section-group');
+      if (!group) return;
+      const willOpen = !group.classList.contains('open');
+      group.classList.toggle('open', willOpen);
+      this.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      try {
+        const key = group.dataset.sectionGroup;
+        if (key) localStorage.setItem('gpeNavSection_' + key, willOpen ? '1' : '0');
+      } catch (e) {}
+    });
+  });
+
+  document.querySelectorAll('.nav-section-group').forEach(group => {
+    const key = group.dataset.sectionGroup;
+    if (!key) return;
+    try {
+      const saved = localStorage.getItem('gpeNavSection_' + key);
+      if (saved === '0') {
+        group.classList.remove('open');
+        const btn = group.querySelector('.nav-section-toggle');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      }
+    } catch (e) {}
+  });
+}
+
+function bindNavigation() {
+  document.querySelectorAll('[data-page]').forEach(el => {
+    el.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (!permissions[currentRole] || !permissions[currentRole].includes(this.dataset.page)) {
+        showToast('Access restricted for the ' + (currentRole || 'current') + ' role.');
+        return;
+      }
+      loadPage(this.dataset.page);
+    });
+  });
+  document.querySelectorAll('.nav-parent').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const target = document.getElementById(this.dataset.target);
+      target.classList.toggle('open');
+    });
+  });
+}
+
+function loadPage(page) {
+  if (!permissions[currentRole] || !permissions[currentRole].includes(page)) {
+    showToast('You do not have permission to access this page.');
+    return;
+  }
+  currentPage = page;
+  document.getElementById('page-container').innerHTML = '<div class="empty-state"><div class="loading-spinner" style="margin:auto"></div><p style="margin-top:15px">Loading page...</p></div>';
+  scriptRun(html => {
+      document.getElementById('page-container').innerHTML = html;
+      updateActiveNavigation();
+      toggleSidebar(false);
+      window.scrollTo({top:0, behavior:'smooth'});
+      if (typeof initPage === 'function') initPage(page);
+    }, err => {
+      document.getElementById('page-container').innerHTML = '<div class="card card-pad"><h3>Unable to load page</h3><p>' + escapeHtml(err.message || String(err)) + '</p></div>';
+    })
+    .getPageHtml(currentToken, page);
+}
+
+function showToast(message) {
+  const t = document.getElementById('toast');
+  t.textContent = message;
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
+}
+
+function initEmployeeMaster(){
+  const state = { headers: [], rows: [], filteredRows: [], page: 1, pageSize: 25, search: '', filters: [] };
+  const operators = ['Contains','Equals','Starts With','Ends With','Not Equal'];
+
+  const esc = value => String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));
+  const getVal = (row, i) => row[i] == null ? '' : String(row[i]);
+  const normalize = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
+
+  function renderHead(){
+    const head = document.getElementById('employeeMasterHead');
+    if (!head) return;
+    head.innerHTML = '<tr>' + state.headers.map(h => '<th title="' + esc(h) + '">' + esc(h) + '</th>').join('') + '</tr>';
+  }
+
+  function matchesOperator(value, target, op){
+    const v = normalize(value), t = normalize(target);
+    if(op === 'Equals') return v === t;
+    if(op === 'Starts With') return v.startsWith(t);
+    if(op === 'Ends With') return v.endsWith(t);
+    if(op === 'Not Equal') return v !== t;
+    return v.includes(t);
+  }
+
+  function applyFilters(){
+    const q = normalize(state.search);
+    state.filteredRows = state.rows.filter(row => {
+      if(q && !row.some(cell => normalize(cell).includes(q))) return false;
+      return state.filters.every(f => {
+        const idx = state.headers.indexOf(f.header);
+        if(idx < 0 || !normalize(f.value)) return true;
+        return matchesOperator(getVal(row, idx), f.value, f.operator);
+      });
+    });
+    state.page = 1;
+    renderTable();
+  }
+
+  function renderTable(){
+    const body = document.getElementById('employeeMasterBody');
+    const empty = document.getElementById('emEmptyState');
+    if (!body || !empty) return;
+    const size = state.pageSize;
+    const total = state.filteredRows.length;
+    const pages = Math.max(1, Math.ceil(total / size));
+    if(state.page > pages) state.page = pages;
+    const start = (state.page - 1) * size;
+    const rows = state.filteredRows.slice(start, start + size);
+    body.innerHTML = rows.map(row => '<tr>' + state.headers.map((_,i)=>'<td>'+esc(getVal(row,i))+'</td>').join('') + '</tr>').join('');
+    empty.classList.toggle('hidden', total !== 0);
+    const count = document.getElementById('emResultCount'); if (count) count.textContent = total.toLocaleString();
+    const info = document.getElementById('emPageInfo'); if (info) info.textContent = 'Page ' + state.page + ' of ' + pages;
+    const prev = document.getElementById('emPrevPage'), next = document.getElementById('emNextPage');
+    if (prev) { prev.disabled = state.page <= 1; prev.style.opacity = state.page <= 1 ? '.55' : '1'; }
+    if (next) { next.disabled = state.page >= pages; next.style.opacity = state.page >= pages ? '.55' : '1'; }
+  }
+
+  function renderFilterRows(){
+    const wrap = document.getElementById('emFilterRows');
+    if (!wrap) return;
+    if(!state.filters.length){
+      wrap.innerHTML = '<div class="em-filter-help">No filters added. Click <strong>+ Add Filter</strong> to select a header.</div>';
+      return;
+    }
+    wrap.innerHTML = state.filters.map((f,i)=>{
+      const opts = state.headers.map(h => '<option value="'+esc(h)+'" '+(h===f.header?'selected':'')+'>'+esc(h)+'</option>').join('');
+      const opOpts = operators.map(op => '<option value="'+esc(op)+'" '+(op===f.operator?'selected':'')+'>'+esc(op)+'</option>').join('');
+      return '<div class="em-filter-row" data-index="'+i+'">' +
+        '<select class="em-filter-header"><option value="">Select header</option>'+opts+'</select>' +
+        '<select class="em-filter-operator">'+opOpts+'</select>' +
+        '<input class="em-filter-value" type="text" value="'+esc(f.value)+'" placeholder="Enter filter value...">' +
+        '<button type="button" class="em-remove-filter" title="Remove filter">×</button>' +
+      '</div>';
+    }).join('');
+    wrap.querySelectorAll('.em-filter-header').forEach(el => el.addEventListener('change', e => { const i=Number(e.target.closest('.em-filter-row').dataset.index); state.filters[i].header=e.target.value; }));
+    wrap.querySelectorAll('.em-filter-operator').forEach(el => el.addEventListener('change', e => { const i=Number(e.target.closest('.em-filter-row').dataset.index); state.filters[i].operator=e.target.value; }));
+    wrap.querySelectorAll('.em-filter-value').forEach(el => el.addEventListener('input', e => { const i=Number(e.target.closest('.em-filter-row').dataset.index); state.filters[i].value=e.target.value; }));
+    wrap.querySelectorAll('.em-remove-filter').forEach(el => el.addEventListener('click', e => { const i=Number(e.target.closest('.em-filter-row').dataset.index); state.filters.splice(i,1); renderFilterRows(); }));
+  }
+
+  function setSourceStatus(text){ const el=document.getElementById('emSourceStatus'); if(el) el.textContent=text; }
+
+  function loadData(){
+    setSourceStatus('Loading Master Data...');
+    scriptRun(payload => {
+        state.headers = Array.isArray(payload.headers) ? payload.headers : [];
+        state.rows = Array.isArray(payload.rows) ? payload.rows : [];
+        state.filteredRows = state.rows.slice();
+        renderHead();
+        renderFilterRows();
+        renderTable();
+        setSourceStatus('Source: ' + (payload.spreadsheetName || 'Master Data') + ' / ' + (payload.sheetName || 'Sheet'));
+        if(payload.warning) showToast(payload.warning);
+      }, err => {
+        state.headers = ['Status'];
+        state.rows = [[err && err.message ? err.message : String(err)]];
+        state.filteredRows = state.rows.slice();
+        renderHead(); renderTable();
+        setSourceStatus('Error loading Master Data');
+        showToast('Employee Master error: ' + (err && err.message ? err.message : String(err)));
+      })
+      .getEmployeeMasterData(currentToken);
+  }
+
+  function exportCsv(){
+    const rows = [state.headers].concat(state.filteredRows);
+    const csv = rows.map(row => row.map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='Employee_Master_Filtered.csv'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const search = document.getElementById('emSearchInput');
+  const clear = document.getElementById('emClearSearch');
+  const size = document.getElementById('emPageSize');
+  if (!search) return;
+
+  search.addEventListener('input', e => { state.search=e.target.value; applyFilters(); });
+  clear && clear.addEventListener('click', () => { state.search=''; search.value=''; applyFilters(); });
+  size && size.addEventListener('change', e => { state.pageSize=Number(e.target.value); state.page=1; renderTable(); });
+  document.getElementById('emPrevPage')?.addEventListener('click', () => { if(state.page>1){state.page--;renderTable();} });
+  document.getElementById('emNextPage')?.addEventListener('click', () => { const pages=Math.max(1,Math.ceil(state.filteredRows.length/state.pageSize)); if(state.page<pages){state.page++;renderTable();} });
+  document.getElementById('emFilterToggle')?.addEventListener('click', () => document.getElementById('emFilterPanel')?.classList.toggle('hidden'));
+  document.getElementById('emAddFilter')?.addEventListener('click', () => { state.filters.push({header:state.headers[0]||'',operator:'Contains',value:''}); renderFilterRows(); });
+  document.getElementById('emApplyFilters')?.addEventListener('click', applyFilters);
+  document.getElementById('emResetFilters')?.addEventListener('click', () => { state.filters=[]; state.search=''; search.value=''; renderFilterRows(); applyFilters(); });
+  document.getElementById('emRefreshBtn')?.addEventListener('click', loadData);
+  document.getElementById('emExportBtn')?.addEventListener('click', exportCsv);
+  loadData();
+}
+
+
+
+function initAbout() {
+  const editBtn = document.getElementById('aboutEditBtn');
+  const addTeamBtn = document.getElementById('aboutAddTeamBtn');
+  const contentForm = document.getElementById('aboutContentForm');
+  const teamForm = document.getElementById('teamForm');
+  const teamGrid = document.getElementById('aboutTeamGrid');
+  const contentModal = document.getElementById('aboutEditModal');
+  const teamModal = document.getElementById('teamModal');
+  const teamModalTitle = document.getElementById('teamModalTitle');
+  const photoUrlInput = document.getElementById('teamPhotoUrlInput');
+  const photoPreview = document.getElementById('teamPhotoPreview');
+  const photoPreviewImage = document.getElementById('teamPhotoPreviewImage');
+  const state = { content: null, team: [] };
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+  function getFormData(form) {
+    const data = {};
+    new FormData(form).forEach((value, key) => { data[key] = typeof value === 'string' ? value.trim() : value; });
+    return data;
+  }
+
+  function openModal(modal) {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeModal(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+  }
+
+  function getPhotoSrc(url) {
+    const value = String(url || '').trim();
+    if (!value) return '';
+
+    // Normalize common Google Drive share links for reliable <img> rendering.
+    const driveMatch = value.match(/drive\.google\.com\/file\/d\/([^/?#]+)/i);
+    const idMatch = value.match(/[?&](?:id|fileId)=([^&#]+)/i);
+    const fileId = (driveMatch && driveMatch[1]) || (idMatch && idMatch[1]);
+
+    if (fileId) {
+      const resourceMatch = value.match(/[?&]resourcekey=([^&#]+)/i);
+      const resourceKey = resourceMatch ? '&resourcekey=' + encodeURIComponent(resourceMatch[1]) : '';
+      return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileId) + '&sz=w1200' + resourceKey;
+    }
+
+    // Accept a bare Drive file ID as well.
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(value)) {
+      return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(value) + '&sz=w1200';
+    }
+
+    return value;
+  }
+  function renderContent() {
+    const c = state.content || {};
+    const map = {
+      aboutHeroTitle: c.heroTitle || '',
+      aboutTagline: c.tagline || '',
+      aboutIntro: c.intro || '',
+      aboutDescription: c.description || '',
+      aboutVision: c.vision || '',
+      aboutMission: c.mission || ''
+    };
+    Object.keys(map).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = map[id];
+    });
+  }
+
+  function renderTeam() {
+    if (!teamGrid) return;
+    const count = document.getElementById('aboutTeamCount');
+    if (count) count.textContent = state.team.length + (state.team.length === 1 ? ' member' : ' members');
+    if (!state.team.length) {
+      teamGrid.innerHTML = '<div class="card card-pad" style="grid-column:1/-1;text-align:center"><h3>No Team Member Yet</h3><p style="margin-top:6px;color:var(--muted)">Tambahkan trainer melalui tombol <strong>Add Team Member</strong>.</p></div>';
+      return;
+    }
+    teamGrid.innerHTML = state.team.map(member => {
+      const photo = getPhotoSrc(member.photoUrl);
+      const photoHtml = photo
+        ? '<img src="' + esc(photo) + '" alt="' + esc(member.name) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML=\'<div class=\"about-team-placeholder\"><div class=\"about-team-placeholder-icon\">◎</div><span>Photo unavailable</span></div>\'">'
+        : '<div class="about-team-placeholder"><div class="about-team-placeholder-icon">◎</div><span>No Photo</span></div>';
+      const adminActions = currentRole === 'Administrator'
+        ? '<div class="about-team-actions"><button type="button" class="btn btn-light btn-sm" data-team-edit="' + esc(member.id) + '">Edit</button><button type="button" class="btn btn-danger btn-sm" data-team-delete="' + esc(member.id) + '">Delete</button></div>'
+        : '';
+      return '<article class="about-team-card"><div class="about-team-photo">' + photoHtml + '</div><div class="about-team-body"><div class="about-team-name">' + esc(member.name) + '</div><div class="about-team-role">' + esc(member.position) + '</div><div class="about-team-bio">' + esc(member.bio || 'Training Center Team') + '</div>' + adminActions + '</div></article>';
+    }).join('');
+  }
+
+  function populateContentForm() {
+    const c = state.content || {};
+    ['heroTitle','tagline','intro','description','vision','mission'].forEach(key => {
+      const field = contentForm && contentForm.elements[key];
+      if (field) field.value = c[key] || '';
+    });
+  }
+
+  function resetTeamForm() {
+    if (!teamForm) return;
+    teamForm.reset();
+    if (teamForm.elements.order) teamForm.elements.order.value = 0;
+    if (teamForm.elements.id) teamForm.elements.id.value = '';
+    if (teamModalTitle) teamModalTitle.textContent = 'Add Team Member';
+    if (photoPreview) photoPreview.classList.add('hidden');
+    if (photoPreviewImage) photoPreviewImage.src = '';
+  }
+
+  function populateTeamForm(member) {
+    if (!teamForm || !member) return;
+    teamForm.elements.id.value = member.id || '';
+    teamForm.elements.name.value = member.name || '';
+    teamForm.elements.position.value = member.position || '';
+    teamForm.elements.photoUrl.value = member.photoUrl || '';
+    teamForm.elements.bio.value = member.bio || '';
+    teamForm.elements.order.value = Number(member.order || 0);
+    if (teamModalTitle) teamModalTitle.textContent = 'Edit Team Member';
+    updatePhotoPreview(member.photoUrl || '');
+  }
+
+  function updatePhotoPreview(url) {
+    const src = getPhotoSrc(url);
+    if (!photoPreview || !photoPreviewImage) return;
+    if (!src) {
+      photoPreview.classList.add('hidden');
+      photoPreviewImage.src = '';
+      return;
+    }
+    photoPreviewImage.src = src;
+    photoPreview.classList.remove('hidden');
+  }
+
+  function loadAbout(showLoading) {
+    if (showLoading && teamGrid) teamGrid.innerHTML = '<div class="card card-pad" style="grid-column:1/-1;text-align:center"><div class="loading-spinner" style="margin:auto"></div><p style="margin-top:10px">Loading About data...</p></div>';
+    scriptRun(data => {
+      state.content = data && data.content ? data.content : {};
+      state.team = Array.isArray(data && data.team) ? data.team : [];
+      renderContent();
+      renderTeam();
+    }, err => {
+      renderContent();
+      if (teamGrid) teamGrid.innerHTML = '<div class="card card-pad" style="grid-column:1/-1"><h3>Unable to load About</h3><p style="margin-top:6px;color:var(--muted)">' + esc(err && err.message ? err.message : String(err)) + '</p></div>';
+      showToast('About error: ' + (err && err.message ? err.message : String(err)));
+    }).getAboutData(currentToken);
+  }
+
+  editBtn?.addEventListener('click', () => {
+    populateContentForm();
+    openModal(contentModal);
+  });
+
+  addTeamBtn?.addEventListener('click', () => {
+    resetTeamForm();
+    openModal(teamModal);
+  });
+
+  document.querySelectorAll('[data-about-close]').forEach(btn => btn.addEventListener('click', () => closeModal(contentModal)));
+  document.querySelectorAll('[data-team-close]').forEach(btn => btn.addEventListener('click', () => closeModal(teamModal)));
+
+  contentModal?.addEventListener('click', e => { if (e.target === contentModal) closeModal(contentModal); });
+  teamModal?.addEventListener('click', e => { if (e.target === teamModal) closeModal(teamModal); });
+
+  contentForm?.addEventListener('submit', e => {
+    e.preventDefault();
+    const data = getFormData(contentForm);
+    scriptRun(result => {
+      showToast(result.message || 'About berhasil disimpan.');
+      closeModal(contentModal);
+      loadAbout(false);
+    }, err => showToast('Gagal menyimpan About: ' + (err && err.message ? err.message : String(err)))).saveAboutContent(currentToken, data);
+  });
+
+  teamForm?.addEventListener('submit', e => {
+    e.preventDefault();
+    const data = getFormData(teamForm);
+    data.order = Number(data.order || 0);
+    const isEdit = Boolean(data.id);
+    const handler = isEdit ? 'updateTeamMember' : 'saveTeamMember';
+    scriptRun(result => {
+      showToast(result.message || (isEdit ? 'Team member berhasil diperbarui.' : 'Team member berhasil ditambahkan.'));
+      closeModal(teamModal);
+      loadAbout(false);
+    }, err => showToast('Gagal menyimpan team member: ' + (err && err.message ? err.message : String(err))))[handler](currentToken, data);
+  });
+
+  photoUrlInput?.addEventListener('input', e => updatePhotoPreview(e.target.value));
+
+  teamGrid?.addEventListener('click', e => {
+    const edit = e.target.closest('[data-team-edit]');
+    if (edit) {
+      const member = state.team.find(item => item.id === edit.dataset.teamEdit);
+      if (!member) return;
+      populateTeamForm(member);
+      openModal(teamModal);
+      return;
+    }
+    const del = e.target.closest('[data-team-delete]');
+    if (del) {
+      const member = state.team.find(item => item.id === del.dataset.teamDelete);
+      if (!member) return;
+      if (!confirm('Hapus team member "' + member.name + '"?')) return;
+      scriptRun(result => {
+        showToast(result.message || 'Team member berhasil dihapus.');
+        loadAbout(false);
+      }, err => showToast('Gagal menghapus team member: ' + (err && err.message ? err.message : String(err)))).deleteTeamMember(currentToken, member.id);
+    }
+  });
+
+  loadAbout(true);
+}
+window.initAbout = initAbout;
+
+function initPage(page) {
+  document.querySelectorAll('[data-demo-action]').forEach(btn => {
+    btn.addEventListener('click', () => showToast(btn.dataset.demoAction || 'This feature will be developed in the next phase.'));
+  });
+  document.querySelectorAll('[data-nav-to]').forEach(el => {
+    el.addEventListener('click', () => loadPage(el.dataset.navTo));
+  });
+  if (page === 'EmployeeMaster' && typeof window.initEmployeeMaster === 'function') {
+    window.initEmployeeMaster();
+  }
+  if (page === 'EmployeeVersatility' && typeof window.initEmployeeVersatility === 'function') {
+    window.initEmployeeVersatility();
+  }
+  if (page === 'TrainingRequest' && typeof window.initTrainingRequest === 'function') {
+    window.initTrainingRequest();
+  }
+  if (page === 'TrainingMonitoring' && typeof window.initTrainingMonitoring === 'function') {
+    window.initTrainingMonitoring();
+  }
+  if (['TrainingModules','Forms','JSA','SOP','WorkInstruction','SMKPDocuments'].includes(page)) {
+    initDocuments();
+  }
+  if (page === 'About' && typeof window.initAbout === 'function') {
+    window.initAbout();
+  }
+}
+
+// ===== AUTHENTICATION / SESSION =====
+function showLoginScreen(message) {
+  document.getElementById('app-loading').classList.add('hidden');
+  document.getElementById('app').classList.add('hidden');
+  const login = document.getElementById('login-screen');
+  if (login) login.classList.remove('hidden');
+  const err = document.getElementById('loginError');
+  if (err) {
+    if (message) { err.textContent = message; err.classList.remove('hidden'); }
+    else err.classList.add('hidden');
+  }
+  const pwd = document.getElementById('loginPassword');
+  if (pwd) pwd.value = '';
+}
+
+function showApp() {
+  const login = document.getElementById('login-screen');
+  if (login) login.classList.add('hidden');
+  document.getElementById('app-loading').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+function applyUserChrome() {
+  document.getElementById('userName').textContent = roleDisplayNames[currentRole] || currentRole;
+  document.getElementById('userRole').textContent = currentRole;
+  const avatar = document.getElementById('userAvatar');
+  if (avatar) avatar.textContent = roleInitials[currentRole] || '??';
+}
+
+function startApp() {
+  applyUserChrome();
+  applyAccessVisibility();
+  showApp();
+  const allowedPages = permissions[currentRole] || [];
+  const startPage = allowedPages.includes('Home') ? 'Home' : (allowedPages[0] || 'Home');
+  loadPage(startPage);
+}
+
+function updateLoginFieldsForRole() {
+  const roleSelect = document.getElementById('loginRole');
+  if (!roleSelect) return;
+  const isGuest = roleSelect.value === 'Guest';
+  document.getElementById('loginUsernameWrap')?.classList.toggle('hidden', isGuest);
+  document.getElementById('loginPasswordWrap')?.classList.toggle('hidden', isGuest);
+}
+
+function doLogin() {
+  const role = document.getElementById('loginRole').value;
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+      currentToken = res.token;
+      currentRole = ROLE_ALIASES[res.role] || res.role;
+      try { sessionStorage.setItem('gpeToken', res.token); } catch (e) {}
+      startApp();
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+      showLoginScreen(err && err.message ? err.message : 'Login failed. Please try again.');
+    })
+    .loginUser(username, password, role);
+}
+
+function logout() {
+  const token = currentToken;
+  currentToken = null;
+  currentRole = null;
+  try { sessionStorage.removeItem('gpeToken'); } catch (e) {}
+  if (token) google.script.run.logoutUser(token);
+  showLoginScreen();
+}
+
+function attemptResumeSession() {
+  let token = null;
+  try { token = sessionStorage.getItem('gpeToken'); } catch (e) {}
+  if (!token) { showLoginScreen(); return; }
+  google.script.run
+    .withSuccessHandler(res => {
+      currentToken = token;
+      currentRole = ROLE_ALIASES[res.role] || res.role;
+      startApp();
+    })
+    .withFailureHandler(() => {
+      try { sessionStorage.removeItem('gpeToken'); } catch (e) {}
+      showLoginScreen();
+    })
+    .getSessionInfo(token);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindSectionToggles();
+  bindNavigation();
+  const loginRoleSelect = document.getElementById('loginRole');
+  if (loginRoleSelect) {
+    loginRoleSelect.addEventListener('change', updateLoginFieldsForRole);
+    updateLoginFieldsForRole();
+  }
+  document.getElementById('loginBtn')?.addEventListener('click', doLogin);
+  document.getElementById('loginPassword')?.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('loginUsername')?.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  attemptResumeSession();
+});
+function initDocuments() {
+  const page = document.querySelector('.document-page');
+  if (!page) return;
+  if (page.__documentController) {
+    page.__documentController.load();
+    return;
+  }
+
+  const category = page.dataset.documentCategory || '';
+  const pageRoot = document.getElementById('page-container');
+  const body = page.querySelector('#documentTableBody');
+  const search = page.querySelector('#docSearch');
+  const statusFilter = page.querySelector('#docStatusFilter');
+  const count = page.querySelector('#docResultCount');
+  let modal = page.querySelector('#documentModal');
+  let form, saveBtn, title, categoryInput;
+  let records = [];
+  let editMode = false;
+  let saving = false;
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  const idx = {'DOCUMENT ID':0,'DOCUMENT NUMBER':1,'DOCUMENT TITLE':2,'CATEGORY':3,'DEPARTMENT':4,'REVISION':5,'EFFECTIVE DATE':6,'STATUS':7,'GOOGLE DRIVE LINK':8,'DESCRIPTION':9,'CREATED BY':10,'CREATED DATE':11,'UPDATED BY':12,'UPDATED DATE':13};
+  const value = (row,name) => row[idx[name]] || '';
+  const categories = ['Training Modules','Forms','JSA','SOP','Work Instruction','SMKP Documents'];
+
+  function ensureModal(){
+    modal = page.querySelector('#documentModal');
+    if(!modal){
+      const wrapper=document.createElement('div');
+      wrapper.innerHTML=`
+        <div id="documentModal" class="modal-backdrop hidden">
+          <div class="modal-card">
+            <div class="modal-header">
+              <div><h3 id="documentModalTitle">Add Document</h3><p id="documentModalSubtitle">Register a document in the document library.</p></div>
+              <button type="button" class="icon-btn" data-doc-close aria-label="Close">&times;</button>
+            </div>
+            <form id="documentForm" onsubmit="return false;">
+              <input type="hidden" id="docDocumentId">
+              <div class="form-grid">
+                <div class="field"><label>Document Category *</label><select id="docCategory" required></select></div>
+                <div class="field"><label>Document Number *</label><input id="docNumber" required></div>
+                <div class="field full"><label>Document Title *</label><input id="docTitle" required></div>
+                <div class="field"><label>Department</label><input id="docDepartment"></div>
+                <div class="field"><label>Revision</label><input id="docRevision" placeholder="Rev. 00"></div>
+                <div class="field"><label>Effective Date</label><input id="docEffectiveDate" type="date"></div>
+                <div class="field"><label>Status *</label><select id="docStatus" required><option>Active</option><option>Draft</option><option>Under Review</option><option>Obsolete</option></select></div>
+                <div class="field full"><label>Google Drive / Google Docs Link *</label><input id="docDriveLink" type="text" inputmode="url" placeholder="https://drive.google.com/..." required></div>
+                <div class="field full"><label>Description / Remarks</label><textarea id="docDescription"></textarea></div>
+              </div>
+              <div class="modal-footer"><button type="button" class="btn btn-light" data-doc-close>Cancel</button><button type="button" class="btn btn-primary" id="docSaveBtn" data-doc-save>Save Document</button></div>
+            </form>
+          </div>
+        </div>`;
+      modal=wrapper.firstElementChild;
+      page.appendChild(modal);
+    }
+    form=modal.querySelector('#documentForm');
+    saveBtn=modal.querySelector('#docSaveBtn');
+    title=modal.querySelector('#documentModalTitle');
+    categoryInput=modal.querySelector('#docCategory');
+    if(categoryInput && categoryInput.options.length===0){
+      categories.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;categoryInput.appendChild(o);});
+    }
+  }
+
+  function setSaving(on){
+    saving=on;
+    if(saveBtn){
+      saveBtn.disabled=on;
+      saveBtn.textContent=on ? (editMode?'Updating...':'Saving...') : (editMode?'Update Document':'Save Document');
+    }
+    let overlay=document.getElementById('documentSavingOverlay');
+    if(on){
+      if(!overlay){
+        overlay=document.createElement('div');
+        overlay.id='documentSavingOverlay';
+        overlay.innerHTML=`<div style="background:#fff;padding:24px 30px;border-radius:14px;box-shadow:0 12px 40px rgba(15,23,42,.18);text-align:center;min-width:260px"><div class="loading-spinner" style="margin:0 auto 14px"></div><div style="font-weight:800;color:#0b1f3a;font-size:14px">Saving Document...</div><div style="margin-top:6px;color:#6b7280;font-size:12px">Writing data to Google Sheets</div></div>`;
+        Object.assign(overlay.style,{position:'fixed',inset:'0',display:'grid',placeItems:'center',background:'rgba(9,23,44,.35)',zIndex:'99999'});
+        document.body.appendChild(overlay);
+      }
+      overlay.style.display='grid';
+    } else if(overlay){
+      overlay.style.display='none';
+    }
+  }
+
+  function statusClass(status){
+    const s=String(status||'').toLowerCase();
+    if(s==='active') return 'badge-success';
+    if(s==='draft') return 'badge-info';
+    if(s==='under review') return 'badge-warning';
+    if(s==='obsolete') return 'badge-danger';
+    return 'badge-neutral';
+  }
+
+  function render(){
+    const q=String(search?.value||'').trim().toLowerCase();
+    const st=String(statusFilter?.value||'').trim().toLowerCase();
+    const filtered=records.filter(r=>{
+      const hay=[value(r,'DOCUMENT NUMBER'),value(r,'DOCUMENT TITLE'),value(r,'DEPARTMENT'),value(r,'REVISION'),value(r,'DESCRIPTION')].join(' ').toLowerCase();
+      return (!q || hay.includes(q)) && (!st || value(r,'STATUS').toLowerCase()===st);
+    });
+    if(count) count.textContent=filtered.length+(filtered.length===1?' document':' documents');
+    if(!body) return;
+    if(!filtered.length){
+      body.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">▤</div><h3>No documents found</h3><p>There are no documents matching the current criteria.</p></div></td></tr>';
+      return;
+    }
+    const canEdit=currentRole==='Administrator';
+    const canDelete=currentRole==='Administrator';
+    body.innerHTML=filtered.map((r,i)=>{
+      const id=esc(value(r,'DOCUMENT ID')); const link=esc(value(r,'GOOGLE DRIVE LINK'));
+      return `<tr>
+        <td>${i+1}</td><td><strong>${esc(value(r,'DOCUMENT NUMBER'))}</strong></td><td>${esc(value(r,'DOCUMENT TITLE'))}</td>
+        <td>${esc(value(r,'DEPARTMENT'))}</td><td>${esc(value(r,'REVISION'))}</td><td>${esc(value(r,'EFFECTIVE DATE'))}</td>
+        <td><span class="badge ${statusClass(value(r,'STATUS'))}">${esc(value(r,'STATUS'))}</span></td>
+        <td><div class="document-actions"><button type="button" class="btn btn-light btn-sm" data-doc-open="${id}" data-doc-link="${link}">Open</button>${canEdit?`<button type="button" class="btn btn-light btn-sm" data-doc-edit="${id}">Edit</button>`:''}${canDelete?`<button type="button" class="btn btn-danger btn-sm" data-doc-delete="${id}">Delete</button>`:''}</div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function load(){
+    ensureModal();
+    if(body) body.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="loading-spinner" style="margin:auto"></div><p>Loading documents...</p></div></td></tr>';
+    scriptRun(res=>{records=Array.isArray(res?.rows)?res.rows:[];render();},
+      err=>{const msg=err?.message||String(err);if(body)body.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">!</div><h3>Unable to load documents</h3><p>'+esc(msg)+'</p></div></td></tr>';showToast('Unable to load documents: '+msg);})
+      .getDocumentData(currentToken, category);
+  }
+
+  function resetForm(){
+    ensureModal(); form.reset();
+    modal.querySelector('#docDocumentId').value='';
+    categoryInput.value=category; modal.querySelector('#docStatus').value='Active';
+    editMode=false; title.textContent='Add Document'; saveBtn.textContent='Save Document'; saveBtn.disabled=false;
+  }
+
+  function openModal(record){
+    ensureModal();
+    if(record){
+      editMode=true; title.textContent='Edit Document'; saveBtn.textContent='Update Document';
+      modal.querySelector('#docDocumentId').value=value(record,'DOCUMENT ID'); categoryInput.value=value(record,'CATEGORY');
+      modal.querySelector('#docNumber').value=value(record,'DOCUMENT NUMBER'); modal.querySelector('#docTitle').value=value(record,'DOCUMENT TITLE');
+      modal.querySelector('#docDepartment').value=value(record,'DEPARTMENT'); modal.querySelector('#docRevision').value=value(record,'REVISION');
+      modal.querySelector('#docEffectiveDate').value=value(record,'EFFECTIVE DATE'); modal.querySelector('#docStatus').value=value(record,'STATUS')||'Active';
+      modal.querySelector('#docDriveLink').value=value(record,'GOOGLE DRIVE LINK'); modal.querySelector('#docDescription').value=value(record,'DESCRIPTION');
+    } else resetForm();
+    modal.classList.remove('hidden');
+    setTimeout(()=>modal.querySelector('#docNumber')?.focus(),50);
+  }
+  function closeModal(){if(modal && !saving) modal.classList.add('hidden');}
+  function collect(){return {
+    documentId:modal.querySelector('#docDocumentId').value.trim(), documentNumber:modal.querySelector('#docNumber').value.trim(),
+    documentTitle:modal.querySelector('#docTitle').value.trim(), category:categoryInput.value||category, department:modal.querySelector('#docDepartment').value.trim(),
+    revision:modal.querySelector('#docRevision').value.trim(), effectiveDate:modal.querySelector('#docEffectiveDate').value, status:modal.querySelector('#docStatus').value,
+    driveLink:modal.querySelector('#docDriveLink').value.trim(), description:modal.querySelector('#docDescription').value.trim()
+  };}
+
+  // IMPORTANT: use click, not native form submission. This prevents navigation to userCodeAppPanel.
+  // The Add Document button is in .page-header, outside .document-page.
+  // Delegate from #page-container so Add/Edit/Delete all work reliably.
+  pageRoot.addEventListener('click',function(e){
+    const add=e.target.closest('[data-doc-add]'); if(add){e.preventDefault();openModal();return;}
+    const save=e.target.closest('[data-doc-save]'); if(save){e.preventDefault();saveDocumentFromForm();return;}
+    const close=e.target.closest('[data-doc-close]'); if(close){e.preventDefault();closeModal();return;}
+    const openBtn=e.target.closest('[data-doc-open]');
+    if(openBtn){const url=openBtn.getAttribute('data-doc-link')||'';if(/^https:\/\/(drive\.google\.com|docs\.google\.com|sheets\.google\.com|docs\.googleusercontent\.com)\//i.test(url))window.open(url,'_blank','noopener');else showToast('This document does not contain a valid Google Drive link.');return;}
+    const editBtn=e.target.closest('[data-doc-edit]');
+    if(editBtn){const r=records.find(x=>value(x,'DOCUMENT ID')===editBtn.dataset.docEdit);if(r)openModal(r);return;}
+    const delBtn=e.target.closest('[data-doc-delete]');
+    if(delBtn){const id=delBtn.dataset.docDelete;const r=records.find(x=>value(x,'DOCUMENT ID')===id);if(!r)return;if(!confirm('Delete document "'+value(r,'DOCUMENT TITLE')+'"? This action cannot be undone.'))return;scriptRun(res=>{showToast(res.message||'Document deleted.');load();},err=>showToast(err?.message||'Delete failed.')).deleteDocument(currentToken, id);}
+  });
+
+  function saveDocumentFromForm(){
+    if(saving) return;
+    const data=collect();
+    if(!data.documentNumber||!data.documentTitle||!data.category||!data.status||!data.driveLink){showToast('Please complete all required fields.');return;}
+    if(!/^https:\/\/(drive\.google\.com|docs\.google\.com|sheets\.google\.com|docs\.googleusercontent\.com)\//i.test(data.driveLink)){showToast('Please enter a valid Google Drive / Google Docs link.');return;}
+    const wasEdit=editMode;
+    setSaving(true);
+    const runner=scriptRun(res=>{
+      setSaving(false); closeModal(); form.reset(); editMode=false;
+      showToast((res&&res.message)||(wasEdit?'Document updated successfully.':'Document added successfully.'));
+      load();
+    }, err=>{
+      setSaving(false);
+      showToast('Save failed: '+(err?.message||String(err)));
+    });
+    if(wasEdit) runner.updateDocument(currentToken, data); else runner.saveDocument(currentToken, data);
+  }
+
+  form?.addEventListener('submit',e=>e.preventDefault());
+  search?.addEventListener('input',render); statusFilter?.addEventListener('change',render); page.querySelector('#docRefresh')?.addEventListener('click',load);
+  page.__documentController={load};
+  load();
+}
+
+
+window.initEmployeeVersatility = function() {
+  const page = document.getElementById('page-container');
+  if (!page || page.dataset.evInitialized === '1') return;
+  page.dataset.evInitialized = '1';
+
+  const state = { rows: [], headers: [], equipmentOptions: [], filtered: [], sortKey: 'name', sortDir: 'asc' };
+  const byId = id => page.querySelector('#' + id);
+  const esc = value => escapeHtml(String(value ?? ''));
+  const normalize = value => String(value ?? '').trim().toLowerCase();
+  const valueForSort = (row, key) => {
+    if (key === 'vers') return row.versatility.map(item => item.name).join(', ');
+    if (key === 'ket') return row.ket;
+    if (key === 'no') return row.rowNumber;
+    return row[key] || '';
+  };
+
+  function populateFilters() {
+    const departments = [...new Set(state.rows.map(row => row.department).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+    const versatility = [...new Set(state.rows.flatMap(row => row.versatility.map(item => item.name)))].sort((a,b) => a.localeCompare(b));
+    byId('evDeptFilter').innerHTML = '<option value="">All Departments</option>' + departments.map(item => '<option value="' + esc(item) + '">' + esc(item) + '</option>').join('');
+    byId('evVersFilter').innerHTML = '<option value="">All Versatility</option>' + versatility.map(item => '<option value="' + esc(item) + '">' + esc(item) + '</option>').join('');
+  }
+
+  function applyFilters() {
+    const search = normalize(byId('evSearch').value);
+    const dept = normalize(byId('evDeptFilter').value);
+    const vers = normalize(byId('evVersFilter').value);
+    const status = byId('evStatusFilter').value;
+    state.filtered = state.rows.filter(row => {
+      const versText = row.versatility.map(item => item.name).join(' ');
+      const statusText = row.versatility.map(item => item.status).join(' ');
+      const haystack = normalize([row.nik,row.name,row.position,row.department,versText,row.ket].join(' '));
+      if (search && !haystack.includes(search)) return false;
+      if (dept && normalize(row.department) !== dept) return false;
+      if (vers && !row.versatility.some(item => normalize(item.name) === vers)) return false;
+      if (status && !statusText.includes(status)) return false;
+      return true;
+    });
+    state.filtered.sort((a,b) => {
+      const left = normalize(valueForSort(a, state.sortKey));
+      const right = normalize(valueForSort(b, state.sortKey));
+      const result = left.localeCompare(right, undefined, {numeric:true, sensitivity:'base'});
+      return state.sortDir === 'asc' ? result : -result;
+    });
+    render();
+  }
+
+  function render() {
+    const body = byId('evBody');
+    if (!body) return;
+    body.innerHTML = state.filtered.length ? state.filtered.map((row,index) => {
+      const versatility = row.versatility.length
+        ? row.versatility.map(item => '<div class="ev-tag"><span class="ev-vers">' + esc(item.name) + '</span><span class="ev-status ' + (item.status === 'UNIT' ? 'unit' : 'simper') + '">' + (item.status === 'UNIT' ? 'Pemegang Unit' : 'Pemegang Simper') + '</span></div>').join('')
+        : '<span class="muted">-</span>';
+      const action = currentRole === 'Administrator' ? '<button type="button" class="btn btn-light btn-sm" data-ev-edit="' + esc(row.nik) + '">Edit</button>' : '';
+      return '<tr><td>' + (index + 1) + '</td><td>' + esc(row.nik) + '</td><td>' + esc(row.name) + '</td><td>' + esc(row.position) + '</td><td>' + esc(row.department) + '</td><td>' + versatility + '</td><td>' + esc(row.ket || '-') + '</td><td>' + action + '</td></tr>';
+    }).join('') : '<tr><td colspan="8"><div class="ev-empty">No employee versatility records found.</div></td></tr>';
+    byId('evCount').textContent = state.filtered.length.toLocaleString() + ' records';
+    page.querySelectorAll('[data-ev-sort]').forEach(th => th.classList.toggle('sort-asc', th.dataset.evSort === state.sortKey && state.sortDir === 'asc'));
+    page.querySelectorAll('[data-ev-sort]').forEach(th => th.classList.toggle('sort-desc', th.dataset.evSort === state.sortKey && state.sortDir === 'desc'));
+  }
+
+  function load() {
+    byId('evBody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="loading-spinner" style="margin:auto"></div><p>Loading Employee Versatility...</p></div></td></tr>';
+    scriptRun(result => {
+      state.rows = Array.isArray(result?.rows) ? result.rows : [];
+      state.headers = Array.isArray(result?.headers) ? result.headers : [];
+      // Matrix versatility hanya berasal dari kolom N sampai AN (14..40).
+      const VERSATILITY_START_INDEX = 13;
+      const VERSATILITY_END_INDEX = 39;
+      state.equipmentOptions = state.headers
+        .slice(VERSATILITY_START_INDEX, VERSATILITY_END_INDEX + 1)
+        .filter(header => String(header || '').trim());
+      populateFilters();
+      applyFilters();
+    }, err => {
+      byId('evBody').innerHTML = '<tr><td colspan="8"><div class="ev-empty">' + esc(err?.message || String(err)) + '</div></td></tr>';
+      showToast('Employee Versatility: ' + (err?.message || String(err)));
+    }).getEmployeeVersatilityData(currentToken);
+  }
+
+  function openEdit(row) {
+    byId('evEditRow').value = row.rowNumber;
+    byId('evEditNik').value = row.nik;
+    byId('evEditDept').value = row.department;
+    byId('evEditName').value = row.name;
+    byId('evEditPos').value = row.position;
+    byId('evEditKet').value = row.ket;
+    const selected = Object.fromEntries(row.versatility.map(item => [item.name.toLowerCase(), item.status]));
+    const options = [...state.equipmentOptions].filter(Boolean).sort((a,b) => a.localeCompare(b));
+    byId('evVersOptions').innerHTML = options.map(name => {
+      const value = selected[name.toLowerCase()] || '';
+      return '<div class="ev-check-row"><label class="ev-check"><input type="checkbox" data-ev-equipment="' + esc(name) + '" ' + (value ? 'checked' : '') + '><span>' + esc(name) + '</span></label><select data-ev-status="' + esc(name) + '" ' + (value ? '' : 'disabled') + '><option value="UNIT" ' + (value === 'UNIT' ? 'selected' : '') + '>Pemegang Unit</option><option value="SIMPER" ' + (value === 'SIMPER' ? 'selected' : '') + '>Pemegang Simper</option></select></div>';
+    }).join('');
+    byId('evVersOptions').querySelectorAll('input[data-ev-equipment]').forEach(input => input.addEventListener('change', () => {
+      const select = byId('evVersOptions').querySelector('[data-ev-status="' + CSS.escape(input.dataset.evEquipment) + '"]');
+      if (select) select.disabled = !input.checked;
+    }));
+    byId('evEditModal').classList.remove('hidden');
+  }
+
+  function closeEdit() { byId('evEditModal').classList.add('hidden'); }
+
+  page.addEventListener('click', event => {
+    const sort = event.target.closest('[data-ev-sort]');
+    if (sort) {
+      const key = sort.dataset.evSort;
+      state.sortDir = state.sortKey === key && state.sortDir === 'asc' ? 'desc' : 'asc';
+      state.sortKey = key;
+      applyFilters();
+      return;
+    }
+    const edit = event.target.closest('[data-ev-edit]');
+    if (edit) {
+      const row = state.rows.find(item => item.nik === edit.dataset.evEdit);
+      if (row) openEdit(row);
+    }
+  });
+
+  byId('evSearch').addEventListener('input', applyFilters);
+  byId('evDeptFilter').addEventListener('change', applyFilters);
+  byId('evVersFilter').addEventListener('change', applyFilters);
+  byId('evStatusFilter').addEventListener('change', applyFilters);
+  byId('evRefreshBtn').addEventListener('click', load);
+  byId('evCloseModal').addEventListener('click', closeEdit);
+  byId('evCancelEdit').addEventListener('click', closeEdit);
+  byId('evExportBtn')?.addEventListener('click', () => {
+    const rows = [['NIK','NAMA','JABATAN','DEPARTEMEN','VERSATILITY','KETERANGAN']].concat(state.filtered.map(row => [row.nik,row.name,row.position,row.department,row.versatility.map(item => item.name + ' [' + item.status + ']').join('; '),row.ket]));
+    const csv = rows.map(row => row.map(value => '"' + String(value ?? '').replace(/"/g,'""') + '"').join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+    const a = document.createElement('a'); a.href = url; a.download = 'Employee_Versatility.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  byId('evImportBtn')?.addEventListener('click', () => byId('evFileInput').click());
+  byId('evFileInput')?.addEventListener('change', event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) {
+      showToast('Untuk menjaga integritas matrix, import hanya menerima file Excel (.xlsx).');
+      event.target.value = '';
+      return;
+    }
+    showToast('File Excel terpilih. Import matrix memerlukan proses konversi ke Google Sheets pada tahap berikutnya.');
+    event.target.value = '';
+  });
+  byId('evEditForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const selected = [...byId('evVersOptions').querySelectorAll('input[data-ev-equipment]:checked')].map(input => ({
+      name: input.dataset.evEquipment,
+      status: byId('evVersOptions').querySelector('[data-ev-status="' + CSS.escape(input.dataset.evEquipment) + '"]').value
+    }));
+    const payload = {
+      nik: byId('evEditNik').value,
+      // Department berasal dari Master Data dan tidak diedit dari form Versatility.
+      name: byId('evEditName').value.trim(),
+      position: byId('evEditPos').value.trim(),
+      ket: byId('evEditKet').value.trim(),
+      versatility: selected
+    };
+    const btn = byId('evSaveEdit');
+    btn.disabled = true;
+    scriptRun(result => { btn.disabled = false; closeEdit(); showToast(result?.message || 'Saved.'); load(); }, err => { btn.disabled = false; showToast(err?.message || String(err)); }).updateEmployeeVersatility(currentToken, payload);
+  });
+
+  load();
+};
+
+window.initTrainingRequest = function() {
+  const page = document.getElementById('page-container');
+  if (!page || page.dataset.trqInitialized === '1') return;
+  page.dataset.trqInitialized = '1';
+
+  const selectedTrainees = {};
+  const participantVersatility = {};
+  const keyboard = {};
+  let employees = [];
+  let searchIndex = [];
+
+  const trainingVersatilityOptions = [
+    'DT Volvo FMX 370','DT Volvo FMX 400','DT Volvo FMX 420','DT Volvo FMX 370,400,420','DT Volvo FMX 400,420',
+    'DT Hino 300','DT Hino 500','DT Hino 300,500','FT Hino 500','FT Trailer Volvo FH 16 550','WT Hino 500',
+    'LT Hino 300','LT Hino 500','LT Volvo FMX 370','LT Volvo FMX 440','LT Hino 300,500','LT Volvo FMX 370,440',
+    'Compact SV 525D','Compact BW 211D','Compact SV 525D, BW 211D','HD Komatsu 465','HD Komatsu 785','OHT CAT 773',
+    'HD Komatsu 465, OHT CAT 773','HD Komatsu 465,785','Crane Truck Hino 500','Lowboy Volvo FH16 550 - 80 T',
+    'Lowboy Volvo FH16 540 - 120 T','Lowboy Volvo FH16 550 - 80 T, FH16 540 - 120 T','Excavator PC 200/210','Excavator PC 400',
+    'Excavator PC 800','Excavator PC 1250','Excavator HIT ZX 350','Excavator HIT ZX 470','Excavator HIT ZX 870',
+    'Excavator HIT ZX 1200','Excavator HIT ZX 350,400, Excavator PC 400','Excavator HIT ZX 870, Excavator PC 800',
+    'Excavator HIT ZX 1200, Excavator PC 1250','Excavator HIT ZX 870,1200, Excavator PC 800,1250','MG Komatsu 535',
+    'MG Komatsu 705','MG Komatsu 755','MG Komatsu 825','MG Komatsu 535,705','MG Komatsu 535,755','MG Komatsu 705,755',
+    'MG Komatsu 535,705,755','DZ D85ESS','DZ D6','DZ D155A','DZ D8','DZ D9','DZ D85ESS,D6','DZ D155A,D8',
+    'DZ D85ESS,D155A','DZ D6,D8','DZ D6,D155A,D8'
+  ];
+
+  const initialVersatilityGroups = {
+    'Non-Skill':['Non-Skill'],
+    'Excavator':['PC KOM 200/210','PC KOM 400','PC KOM 800','PC KOM 1250','HIT ZX 350','HIT ZX 470','HIT ZX 870','HIT ZX 1200'],
+    'Motor Grader':['MG KOMATSU 535','MG KOMATSU 705','MG KOMATSU 755','MG KOMATSU 825'],
+    'Bulldozer':['DZ D85ESS','DZ D6','DZ D8','DZ D9','DZ D155A'],
+    'Compactor':['CP SV 525D','CP BW 211D'],
+    'Heavy Dump':['HD KOM 465','HD KOM 785','OHT CAT 773'],
+    'Dump Truck':['DT VOLVO FMX 370','DT VOLVO FMX 400','DT VOLVO FMX 420','DT HINO 300','DT HINO 500'],
+    'Water Truck':['WT HINO 500'],
+    'Fuel Truck':['FT HINO 500','FT TRAILER VOLVO FH16 550'],
+    'Lube Truck':['LT HINO 300','LT HINO 500','LT VOLVO FMX 370','LT VOLVO FMX 440'],
+    'Crane Truck':['CT HINO 500'],
+    'Lowboy':['LOWBOY FH16 550 - 80 T','LOWBOY FH16 540 - 120 T']
+  };
+  const picOptions = ['Regen Tolanda','Helbin PS','Asep Setyabudi Hanora','Catur Herdian Joko Lelono','Hasim','Dhimas Maychel','Ricki Supriyanto','Juni','Demma Massolo','Didik Setiawan'];
+  const esc = value => escapeHtml(String(value ?? ''));
+  const normalize = value => String(value ?? '').trim().toLowerCase();
+  const el = id => page.querySelector('#'+id);
+
+  el('year').value = new Date().getFullYear();
+  el('trainingVersatility').innerHTML += trainingVersatilityOptions.map(v => '<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+  el('picTraining').innerHTML += picOptions.map(v => '<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+
+  function show(message){ showToast(message); }
+  function updateCounter(n){ el('participantCounter').textContent = n + (n === 1 ? ' Trainee' : ' Trainees'); }
+  function closeDropdowns(except){
+    page.querySelectorAll('.trq-dropdown.show').forEach(d=>{if(!except||d!==except)d.classList.remove('show');});
+    page.querySelectorAll('.trq-versatility.open').forEach(v=>{if(!except||v!==except)v.classList.remove('open');});
+  }
+  function employeeSearch(keyword,currentIndex){
+    const q=normalize(keyword);
+    return searchIndex.filter(x=>!q||x.text.includes(q)).map(x=>x.employee).filter(emp=>{
+      return !Object.keys(selectedTrainees).some(k=>String(k)!==String(currentIndex)&&selectedTrainees[k]&&normalize(selectedTrainees[k].nik)===normalize(emp.nik));
+    }).slice(0,50);
+  }
+  function renderEmployee(index,employee){
+    const box=page.querySelector('#employeeInfo'+index); if(!box)return;
+    ['nik','nama','position','departemen','doh','masaKerja'].forEach(key=>{const node=box.querySelector('[data-field="'+key+'"]');if(node)node.textContent=employee&&employee[key]?employee[key]:'-';});
+    const selected=page.querySelector('#selectedTrainee'+index), text=page.querySelector('#selectedTraineeText'+index), input=page.querySelector('#traineeInput'+index);
+    if(employee){text.textContent=(employee.nama||'-')+' · '+(employee.nik||'-');selected.classList.add('show');input.value=employee.nama||'';}
+    else{text.textContent='';selected.classList.remove('show');input.value='';input.placeholder='Search trainee by NIK or name';}
+  }
+  function renderTraineeDropdown(index,keyword){
+    const dropdown=page.querySelector('#traineeDropdown'+index);if(!dropdown)return;
+    const results=employeeSearch(keyword,index);keyboard[index]={results,activeIndex:results.length?0:-1};
+    if(!results.length){dropdown.innerHTML='<div style="padding:10px;color:#98a2ab;font-size:10px">No employee found.</div>';dropdown.classList.add('show');return;}
+    dropdown.innerHTML=results.map((emp,i)=>'<div class="trq-option '+(i===0?'active':'')+'" data-nik="'+esc(emp.nik)+'" data-index="'+i+'"><div class="trq-option-name">'+esc(emp.nama||'-')+'</div><div class="trq-option-meta">NIK: '+esc(emp.nik||'-')+' · '+esc(emp.position||'-')+' · '+esc(emp.departemen||'-')+'</div></div>').join('');
+    dropdown.querySelectorAll('.trq-option').forEach(opt=>opt.addEventListener('click',()=>selectTrainee(index,opt.dataset.nik)));dropdown.classList.add('show');
+  }
+  function selectTrainee(index,nik){
+    const employee=employees.find(e=>String(e.nik)===String(nik));if(!employee){show('Employee not found.');return;}
+    if(Object.keys(selectedTrainees).some(k=>String(k)!==String(index)&&selectedTrainees[k]&&String(selectedTrainees[k].nik)===String(employee.nik))){show('Trainee sudah dipilih pada participant lain.');return;}
+    selectedTrainees[index]=employee;page.querySelector('#traineeDropdown'+index)?.classList.remove('show');renderEmployee(index,employee);
+  }
+  function clearTrainee(index){delete selectedTrainees[index];participantVersatility[index]=[];renderEmployee(index,null);renderVersatility(index);page.querySelector('#traineeInput'+index)?.focus();}
+  function renderVersatility(index){
+    const box=page.querySelector('#selectedVersatility'+index);if(!box)return;const values=participantVersatility[index]||[];
+    box.innerHTML=values.length?values.map(v=>'<span class="trq-tag"><span>'+esc(v)+'</span><button type="button" data-remove="'+esc(v)+'">×</button></span>').join(''):'<span class="trq-placeholder">Select one or more Initial Versatility</span>';
+    box.querySelectorAll('[data-remove]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();toggleVersatility(index,btn.dataset.remove);}));
+    const dropdown=page.querySelector('#versatilityDropdown'+index);if(dropdown)dropdown.querySelectorAll('.trq-vers-option').forEach(o=>o.classList.toggle('selected',values.includes(o.dataset.value)));
+  }
+  function toggleVersatility(index,value){const arr=participantVersatility[index]||(participantVersatility[index]=[]);const pos=arr.indexOf(value);if(pos>=0)arr.splice(pos,1);else arr.push(value);renderVersatility(index);}
+  function buildInitialVersatilityMarkup(){
+    return Object.entries(initialVersatilityGroups).map(([group,values])=>'<div class="trq-vers-group">'+esc(group)+'</div>'+values.map(v=>'<div class="trq-vers-option" data-value="'+esc(v)+'">'+esc(v)+'</div>').join('')).join('');
+  }
+  function buildParticipant(index,previous){
+    participantVersatility[index]=previous?.versatility?[...previous.versatility]:[];
+    if(previous?.nik)selectedTrainees[index]=employees.find(e=>String(e.nik)===String(previous.nik));
+    const card=document.createElement('div');card.className='trq-participant'+(index>0?' collapsed':'');card.dataset.index=index;
+    card.innerHTML='<div class="trq-participant-head"><div class="trq-participant-title"><span class="trq-num">'+(index+1)+'</span><span>Trainee '+(index+1)+'</span></div><div class="trq-participant-actions"><span class="trq-label">Trainee</span><button type="button" class="trq-toggle" title="Toggle"><span>⌃</span></button></div></div><div class="trq-participant-body"><div class="trq-search field"><label>Trainee <span class="trq-required">*</span></label><div style="position:relative"><input id="traineeInput'+index+'" type="text" autocomplete="off" placeholder="Search trainee by NIK or name"><span class="trq-search-icon">⌕</span><div id="traineeDropdown'+index+'" class="trq-dropdown"></div></div><div id="selectedTrainee'+index+'" class="trq-selected"><span id="selectedTraineeText'+index+'"></span><button type="button" class="trq-change">Change</button></div></div><div id="employeeInfo'+index+'" class="trq-employee"><div class="trq-info"><label>NIK</label><div data-field="nik">-</div></div><div class="trq-info"><label>Name</label><div data-field="nama">-</div></div><div class="trq-info"><label>Position</label><div data-field="position">-</div></div><div class="trq-info"><label>Department</label><div data-field="departemen">-</div></div><div class="trq-info"><label>DOH</label><div data-field="doh">-</div></div><div class="trq-info"><label>Masa Kerja</label><div data-field="masaKerja">-</div></div></div><div class="trq-versatility"><label>Initial Versatility <span class="trq-required">*</span></label><div id="selectedVersatility'+index+'" class="trq-versatility-box" tabindex="0" role="combobox" aria-expanded="false"></div><div id="versatilityDropdown'+index+'" class="trq-vers-dropdown">'+buildInitialVersatilityMarkup()+'</div><div class="trq-help">Select one or more Initial Versatility.</div></div></div>';
+    page.querySelector('#participantsContainer').appendChild(card);
+    const input=card.querySelector('#traineeInput'+index);
+    input.addEventListener('input',()=>renderTraineeDropdown(index,input.value));input.addEventListener('focus',()=>renderTraineeDropdown(index,input.value));
+    input.addEventListener('keydown',e=>{const state=keyboard[index];if(!state)return;if(e.key==='ArrowDown'){e.preventDefault();state.activeIndex=Math.min(state.activeIndex+1,state.results.length-1);}else if(e.key==='ArrowUp'){e.preventDefault();state.activeIndex=Math.max(state.activeIndex-1,0);}else if(e.key==='Enter'&&state.results[state.activeIndex]){e.preventDefault();selectTrainee(index,state.results[state.activeIndex].nik);}else if(e.key==='Escape'){card.querySelector('#traineeDropdown'+index)?.classList.remove('show');}card.querySelectorAll('#traineeDropdown'+index+' .trq-option').forEach((o,i)=>o.classList.toggle('active',i===state.activeIndex));});
+    card.querySelector('.trq-toggle').addEventListener('click',()=>card.classList.toggle('collapsed'));card.querySelector('.trq-change').addEventListener('click',()=>clearTrainee(index));
+    const vbox=card.querySelector('#selectedVersatility'+index), vwrap=vbox.parentElement;
+    vbox.addEventListener('click',e=>{e.stopPropagation();closeDropdowns(vwrap);const open=vwrap.classList.toggle('open');vbox.setAttribute('aria-expanded',String(open));});
+    vbox.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target===vbox){e.preventDefault();vbox.click();}else if(e.key==='Escape'){vwrap.classList.remove('open');vbox.setAttribute('aria-expanded','false');}else if((e.key==='Backspace'||e.key==='Delete')&&(participantVersatility[index]||[]).length){participantVersatility[index].pop();renderVersatility(index);}});
+    card.querySelector('#versatilityDropdown'+index).addEventListener('click',e=>{const o=e.target.closest('.trq-vers-option');if(o)toggleVersatility(index,o.dataset.value);});
+    renderEmployee(index,selectedTrainees[index]||null);renderVersatility(index);
+  }
+  function currentSelections(){const count=parseInt(el('participantCount')?.value||'0',10)||0;return Array.from({length:count},(_,i)=>({nik:selectedTrainees[i]?.nik||'',employee:selectedTrainees[i]||null,versatility:[...(participantVersatility[i]||[])]}));}
+  function generateParticipants(count){const container=el('participantsContainer');const previous=currentSelections();Object.keys(selectedTrainees).forEach(k=>delete selectedTrainees[k]);Object.keys(participantVersatility).forEach(k=>delete participantVersatility[k]);container.innerHTML='';for(let i=0;i<count;i++)buildParticipant(i,previous[i]);updateCounter(count);}
+  function reset(){el('trainingForm').reset();el('year').value=new Date().getFullYear();el('startDate').value='';el('remarks').value='Inclass';Object.keys(selectedTrainees).forEach(k=>delete selectedTrainees[k]);Object.keys(participantVersatility).forEach(k=>delete participantVersatility[k]);el('participantsContainer').innerHTML='<div class="trq-empty"><div class="trq-empty-icon">+</div><strong>No trainees added yet</strong><p>Enter the participant count above to generate the trainee registration form.</p></div>';updateCounter(0);}
+  function setLoading(flag){const btn=el('submitButton');el('loadingBar').classList.toggle('show',flag);btn.disabled=flag;btn.textContent=flag?'Submitting...':'Submit Training Request';}
+  function submit(event){
+    event.preventDefault();
+    const required=[['programType','Program Type'],['programName','Program Name'],['jobsite','Jobsite'],['trainingUnit','Training Unit'],['trainingVersatility','Training Versatility'],['year','Year'],['picTraining','PIC Training'],['participantCount','Participant Count']];
+    for(const [id,label] of required){const f=el(id);if(!String(f.value||'').trim()){f.focus();show(label+' belum diisi.');return;}}
+    const count=parseInt(el('participantCount').value,10);if(!Number.isInteger(count)||count<1||count>100){show('Jumlah trainee harus antara 1 sampai 100.');return;}
+    const participants=[];
+    for(let i=0;i<count;i++){const emp=selectedTrainees[i];if(!emp){show('Trainee '+(i+1)+' belum dipilih.');el('traineeInput'+i)?.focus();return;}const vers=participantVersatility[i]||[];if(!vers.length){show('Initial Versatility trainee '+(i+1)+' belum dipilih.');el('selectedVersatility'+i)?.focus();return;}participants.push({nik:emp.nik,nama:emp.nama,position:emp.position||'',departemen:emp.departemen||'',doh:emp.doh||'',masaKerja:emp.masaKerja||'',initialVersatility:vers.join(', ')});}
+    setLoading(true);
+    scriptRun(result=>{setLoading(false);if(result?.success){show(result.message+' Request ID: '+result.requestId);reset();}else show(result?.message||'Training request gagal disimpan.');},err=>{setLoading(false);show(err?.message||'Terjadi kesalahan pada server.');}).submitTraining(currentToken,{programType:el('programType').value.trim(),programName:el('programName').value.trim(),jobsite:el('jobsite').value.trim(),trainingUnit:el('trainingUnit').value.trim(),trainingVersatility:el('trainingVersatility').value.trim(),year:el('year').value,picTraining:el('picTraining').value.trim(),startDate:el('startDate').value,remarks:'Inclass',participants});
+  }
+  el('participantCount').addEventListener('input',function(){let n=parseInt(this.value,10);if(!Number.isInteger(n)||n<1){Object.keys(selectedTrainees).forEach(k=>delete selectedTrainees[k]);Object.keys(participantVersatility).forEach(k=>delete participantVersatility[k]);el('participantsContainer').innerHTML='<div class="trq-empty"><div class="trq-empty-icon">+</div><strong>No trainees added yet</strong><p>Enter the participant count above to generate the trainee registration form.</p></div>';updateCounter(0);return;}if(n>100){n=100;this.value='100';show('Maximum jumlah trainee adalah 100 orang.');}generateParticipants(n);});
+  el('trainingUnit').addEventListener('change',()=>{});
+  el('trainingForm').addEventListener('submit',submit);el('trqResetBtn').addEventListener('click',reset);
+  document.addEventListener('click',e=>{if(page.contains(e.target)&&!e.target.closest('.trq-dropdown')&&!e.target.closest('.trq-search input')&&!e.target.closest('.trq-versatility'))closeDropdowns();});
+  scriptRun(data=>{employees=Array.isArray(data)?data.filter(x=>x&&String(x.nik||'').trim()):[];searchIndex=employees.map(employee=>({employee,text:[employee.nik,employee.nama,employee.position,employee.departemen].join(' ').toLowerCase()}));if(!employees.length)show('Data trainee dari tab Master Data tidak ditemukan.');},err=>show('Data trainee dari Master Data tidak dapat dimuat: '+(err?.message||String(err)))).getEmployeeData(currentToken);
+};
+
+</script>
+
+
+<script>
+window.initTrainingMonitoring = function(){
+  const state = {
+    requests: [],
+    participants: [],
+    options: {
+      programTypes: [],
+      jobsites: [],
+      trainingUnits: [],
+      trainingVersatility: [],
+      initialVersatility: [],
+      picTraining: [],
+      remarks: [],
+      programStatuses: [],
+      participantStatuses: [],
+      years: []
+    },
+    filters: { period: 'all', trainingCode: '', trainingUnit: '' },
+    search: '',
+    loaded: false,
+    detailRequestId: ''
+  };
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  const norm = v => String(v == null ? '' : v).normalize('NFKC').trim().toLowerCase();
+  const canEdit = currentRole === 'Administrator';
+  const inProgressRemarks = ['inclass','training praktek 1','training praktek 2','on job training'];
+  const defaultProgramStatuses = ['Active','Close','Hold','Cancel'];
+  const defaultParticipantStatuses = ['Requested','Continue','Hold','Close','Cancel'];
+
+  function ensureTmLoadingOverlay(){
+    let overlay=document.getElementById('tmActionLoading');
+    if(overlay) return overlay;
+    overlay=document.createElement('div');
+    overlay.id='tmActionLoading';
+    overlay.className='tm-action-loading hidden';
+    overlay.innerHTML='<div class="tm-action-loading-box"><div class="loading-spinner"></div><div class="tm-action-loading-title" id="tmActionLoadingTitle">Processing...</div><div class="tm-action-loading-text" id="tmActionLoadingText">Please wait while the data is being updated.</div></div>';
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+  function tmLoading(show,title,text){
+    const overlay=ensureTmLoadingOverlay();
+    if(title) overlay.querySelector('#tmActionLoadingTitle').textContent=title;
+    if(text) overlay.querySelector('#tmActionLoadingText').textContent=text;
+    overlay.classList.toggle('hidden',!show);
+    document.body.classList.toggle('tm-no-scroll',!!show);
+  }
+
+  function parseDate(text){
+    if(!text) return null;
+    const s = String(text).trim();
+    let d = new Date(s);
+    if(!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]+)[\s-]+(\d{4})/);
+    if(m){
+      const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11,januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
+      const month=months[m[2].toLowerCase()];
+      if(month != null) return new Date(Number(m[3]), month, Number(m[1]));
+    }
+    return null;
+  }
+  function isoLocal(d){ return d && !isNaN(d.getTime()) ? d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') : ''; }
+  function periodRange(){
+    const p=$('tmPeriod').value, now=new Date();
+    if(p==='all') return null;
+    if(p==='custom'){
+      const a=$('tmFromDate').value,b=$('tmToDate').value;
+      if(!a&&!b)return null;
+      const from=a?new Date(a+'T00:00:00'):null, to=b?new Date(b+'T23:59:59'):null;
+      return {from,to};
+    }
+    if(p==='weekly'){
+      const raw=$('tmWeekDate').value, base=raw?new Date(raw+'T00:00:00'):new Date();
+      const day=base.getDay(),diff=(day===0?-6:1-day),from=new Date(base);
+      from.setDate(base.getDate()+diff);from.setHours(0,0,0,0);
+      const to=new Date(from);to.setDate(from.getDate()+6);to.setHours(23,59,59,999);
+      return {from,to};
+    }
+    if(p==='monthly'){
+      const raw=$('tmMonth').value;
+      if(!raw)return {from:new Date(now.getFullYear(),now.getMonth(),1),to:new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)};
+      const [y,m]=raw.split('-').map(Number);return {from:new Date(y,m-1,1),to:new Date(y,m,0,23,59,59)};
+    }
+    if(p==='yearly'){
+      const y=Number($('tmYear').value)||now.getFullYear();return {from:new Date(y,0,1),to:new Date(y,11,31,23,59,59)};
+    }
+    return null;
+  }
+  function dateInRange(text,range){
+    if(!range)return true;
+    const d=parseDate(text);
+    if(!d)return false;
+    if(range.from){const f=new Date(range.from);f.setHours(0,0,0,0);if(d<f)return false;}
+    if(range.to){const t=new Date(range.to);if(d>t)return false;}
+    return true;
+  }
+  function requestDate(r){ return r['Timestamp'] || ''; }
+  function participantDate(p){ return p['Start Date'] || p['Reassesment Date'] || ''; }
+  function matchingKpiRequests(){ const range=periodRange(); return state.requests.filter(r=>dateInRange(requestDate(r),range)); }
+  function matchingKpiParticipants(){
+    const ids=new Set(matchingKpiRequests().map(r=>r['Request ID']));
+    const range=periodRange();
+    return state.participants.filter(p=>ids.has(p['Request ID']) || (!p['Request ID'] && dateInRange(participantDate(p),range)));
+  }
+  function isProgress(p){ return inProgressRemarks.includes(norm(p['Remarks'])); }
+  function isReassess(p){ return norm(p['Remarks'])==="re'assesment" || !!String(p['Reassesment Date']||'').trim(); }
+  function statusBadge(v){
+    const n=norm(v);let cls='badge-neutral';
+    if(['active','continue','countinue','requested'].includes(n))cls='badge-info';
+    if(['close','completed'].includes(n))cls='badge-success';
+    if(n==='hold')cls='badge-warning';
+    if(n==='cancel')cls='badge-danger';
+    return '<span class="badge '+cls+'">'+esc(v||'-')+'</span>';
+  }
+  function progressBadge(v){const n=norm(v);return '<span class="tm-stage '+(inProgressRemarks.includes(n)?'active':'')+'">'+esc(v||'-')+'</span>';}
+  function selectedOrCurrent(list,current){
+    const values=Array.isArray(list)?list.slice():[];
+    if(current && !values.some(v=>norm(v)===norm(current)))values.unshift(current);
+    return [...new Set(values.filter(Boolean))];
+  }
+  function selectHtml(id,label,options,current,placeholder,cls){
+    const values=selectedOrCurrent(options,current);
+    return '<div class="tm-edit-field"><label>'+esc(label)+'</label><select id="'+esc(id)+'" class="'+(cls||'')+'"><option value="">'+esc(placeholder||'Select '+label)+'</option>'+values.map(v=>'<option value="'+esc(v)+'" '+(norm(v)===norm(current)?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select></div>';
+  }
+  function inputHtml(id,label,value,type,attrs){
+    return '<div class="tm-edit-field"><label>'+esc(label)+'</label><input type="'+esc(type||'text')+'" id="'+esc(id)+'" value="'+esc(value||'')+'" '+(attrs||'')+'></div>';
+  }
+  function setFilterVisibility(){
+    ['tmCustomDates','tmWeekSelect','tmMonthSelect','tmYearSelect'].forEach(id=>$(id).classList.add('hidden'));
+    const p=$('tmPeriod').value;
+    if(p==='custom')$('tmCustomDates').classList.remove('hidden');
+    if(p==='weekly')$('tmWeekSelect').classList.remove('hidden');
+    if(p==='monthly')$('tmMonthSelect').classList.remove('hidden');
+    if(p==='yearly')$('tmYearSelect').classList.remove('hidden');
+  }
+  function calcKpis(){
+    const requests=matchingKpiRequests(),participants=matchingKpiParticipants();
+    $('tmKpiActive').textContent=requests.filter(r=>norm(r['Status'])==='active').length;
+    $('tmKpiParticipants').textContent=participants.length;
+    $('tmKpiClose').textContent=requests.filter(r=>norm(r['Status'])==='close').length;
+    $('tmKpiProgress').textContent=participants.filter(isProgress).length;
+    $('tmKpiReassess').textContent=participants.filter(isReassess).length;
+    $('tmKpiHold').textContent=participants.filter(p=>norm(p['Status'])==='hold').length;
+  }
+  function programMatches(){
+    const code=norm(state.filters.trainingCode),unit=norm(state.filters.trainingUnit),q=norm(state.search);
+    return state.requests.filter(r=>{
+      const ps=state.participants.filter(p=>p['Request ID']===r['Request ID']);
+      const codeOK=!code || ps.some(p=>norm(p['Training Code'])===code);
+      const unitOK=!unit || norm(r['Training Unit'])===unit;
+      const searchOK=!q || ['Request ID','Program Type','Program Name','Jobsite','Training Unit','Training Versatility','PIC Training','Status'].some(k=>norm(r[k]).includes(q));
+      return codeOK && unitOK && searchOK;
+    });
+  }
+  function populateFilterOptions(){
+    const codeSelect=$('tmTrainingCodeFilter'),unitSelect=$('tmTrainingUnitFilter');
+    const codes=[...new Set(state.participants.map(p=>String(p['Training Code']||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const units=selectedOrCurrent(state.options.trainingUnits,state.filters.trainingUnit);
+    const oldCode=state.filters.trainingCode,oldUnit=state.filters.trainingUnit;
+    codeSelect.innerHTML='<option value="">All Training Code</option>'+codes.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+    unitSelect.innerHTML='<option value="">All Training Unit</option>'+units.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+    codeSelect.value=oldCode;unitSelect.value=oldUnit;
+  }
+  function renderProgramTable(){
+    const rows=programMatches(),head=$('tmHead'),body=$('tmBody');
+    head.innerHTML='<tr><th>Request ID</th><th>Program Type</th><th>Program Name</th><th>Jobsite</th><th>Training Unit</th><th>Training Versatility</th><th>PIC</th><th>Participants</th><th>Status</th><th>Action</th></tr>';
+    body.innerHTML=rows.length?rows.map(r=>{
+      const ps=state.participants.filter(p=>p['Request ID']===r['Request ID']);
+      const admin=canEdit?'<button class="btn btn-light btn-sm tm-edit-request" data-request="'+esc(r['Request ID'])+'" data-row="'+r._row+'">Edit</button> <button class="btn btn-danger btn-sm tm-delete-request" data-request="'+esc(r['Request ID'])+'">Delete</button>':'';
+      return '<tr><td>'+esc(r['Request ID'])+'</td><td>'+esc(r['Program Type'])+'</td><td><strong>'+esc(r['Program Name'])+'</strong></td><td>'+esc(r['Jobsite'])+'</td><td>'+esc(r['Training Unit'])+'</td><td>'+esc(r['Training Versatility'])+'</td><td>'+esc(r['PIC Training'])+'</td><td>'+ps.length+'</td><td>'+statusBadge(r['Status'])+'</td><td><button class="btn btn-light btn-sm tm-view" data-request="'+esc(r['Request ID'])+'">View</button> '+admin+'</td></tr>';
+    }).join(''):'<tr><td colspan="10"><div class="empty-state"><div class="empty-icon"><i class="bi bi-clipboard2-data"></i></div><h3>Tidak ada data</h3><p>Tidak ada program training yang sesuai dengan filter.</p></div></td></tr>';
+    $('tmResultCount').textContent=rows.length+' program';$('tmEmpty').classList.add('hidden');
+    bindProgramActions();
+  }
+  function bindProgramActions(){
+    document.querySelectorAll('.tm-view').forEach(b=>b.onclick=()=>showRequestDetail(b.dataset.request));
+    if(!canEdit)return;
+    document.querySelectorAll('.tm-edit-request').forEach(b=>b.onclick=()=>openEditRequest(b.dataset.request,Number(b.dataset.row)));
+    document.querySelectorAll('.tm-delete-request').forEach(b=>b.onclick=()=>deleteRequest(b.dataset.request));
+  }
+  function actionButtons(type){
+    if(!canEdit)return '';
+    if(type==='request')return '<div class="tm-detail-actions"><button class="btn btn-primary btn-sm" id="tmDetailEditRequest">Edit Program</button><button class="btn btn-danger btn-sm" id="tmDetailDeleteRequest">Delete Program</button></div>';
+    return '<div class="tm-detail-actions"><button class="btn btn-light btn-sm" id="tmDetailBackRequest">Back to Program</button><button class="btn btn-primary btn-sm" id="tmDetailEditParticipant">Edit Trainee</button><button class="btn btn-danger btn-sm" id="tmDetailDeleteParticipant">Delete Trainee</button></div>';
+  }
+  function participantRowsHtml(requestId,ps){
+    return ps.map(p=>'<tr data-p-row="'+p._row+'"><td><input type="checkbox" class="tm-trainee-check tm-check" data-row="'+p._row+'" data-nik="'+esc(p['Trainee NIK'])+'" data-request="'+esc(requestId)+'"></td><td>'+esc(p['Trainee NIK'])+'</td><td><strong>'+esc(p['Trainee Name'])+'</strong><div class="tm-muted">'+esc(p['Departement'])+'</div></td><td>'+esc(p['Position'])+'</td><td>'+esc(p['Initial Versatility'])+'</td><td class="tm-remarks-cell">'+esc(p['Remarks']||'-')+'</td><td class="tm-status-cell">'+statusBadge(p['Status'])+'</td><td>'+esc(p['HM Progress']||'-')+'</td><td><button class="btn btn-light btn-sm tm-inline-view" data-row="'+p._row+'" data-nik="'+esc(p['Trainee NIK'])+'" data-request="'+esc(requestId)+'">View</button> '+(canEdit?'<button class="btn btn-light btn-sm tm-inline-edit" data-row="'+p._row+'" data-nik="'+esc(p['Trainee NIK'])+'" data-request="'+esc(requestId)+'">Edit</button>':'')+'</td></tr>').join('');
+  }
+  function showRequestDetail(id){
+    const r=state.requests.find(x=>x['Request ID']===id); if(!r)return;
+    const ps=state.participants.filter(x=>x['Request ID']===id); state.detailRequestId=id;
+    $('tmDetailTitle').textContent=r['Program Name']||id;
+    $('tmDetailSubtitle').textContent=id+' • '+(r['Jobsite']||'-')+' • '+(r['PIC Training']||'-');
+    const bulk=canEdit?'<div class="tm-bulkbar"><span class="tm-bulk-count" id="tmBulkCount">0 trainee selected</span><select id="tmBulkStatus" class="tm-bulk-status"><option value="">Status...</option>'+selectedOrCurrent(state.options.participantStatuses,'').map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('')+'</select><select id="tmBulkRemarks" class="tm-bulk-remarks"><option value="">Remarks...</option>'+selectedOrCurrent(state.options.remarks,'').map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('')+'</select><button type="button" class="btn btn-primary btn-sm" id="tmBulkApply">Apply to Selected</button><button type="button" class="btn btn-light btn-sm" id="tmBulkClear">Clear</button></div>':'';
+    const details='<div class="tm-detail-grid">'+[['Program Type',r['Program Type']],['Jobsite',r['Jobsite']],['Program Name',r['Program Name']],['Training Unit',r['Training Unit']],['Training Versatility',r['Training Versatility']],['Year',r['Year']],['PIC Training',r['PIC Training']],['Participants',ps.length],['Status',r['Status']]].map(x=>'<div><span>'+esc(x[0])+'</span><strong>'+esc(x[1]||'-')+'</strong></div>').join('')+'</div>';
+    const table='<div class="tm-detail-section"><h4>Trainee Participants ('+ps.length+')</h4>'+bulk+'<div class="table-wrap"><table><thead><tr>'+ (canEdit?'<th><input type="checkbox" id="tmSelectAll" class="tm-check"></th>':'') +'<th>NIK</th><th>Nama</th><th>Position</th><th>Initial Versatility</th><th>Remarks</th><th>Status</th><th>HM Progress</th><th>Action</th></tr></thead><tbody>'+participantRowsHtml(id,ps)+'</tbody></table></div></div>';
+    $('tmDetailBody').innerHTML=details+actionButtons('request')+table;
+    $('tmDetailBackdrop').classList.remove('hidden');
+    bindDetailEvents(id);
+  }
+  function bindDetailEvents(id){
+    const selectAll=$('tmSelectAll');
+    if(selectAll) selectAll.onchange=()=>setAllTraineeChecks(selectAll.checked);
+    document.querySelectorAll('#tmDetailBody .tm-trainee-check').forEach(c=>c.onchange=updateBulkCount);
+    if(canEdit){
+      $('tmDetailEditRequest')?.addEventListener('click',()=>{const r=state.requests.find(x=>x['Request ID']===id);if(r)openEditRequest(id,r._row);});
+      $('tmDetailDeleteRequest')?.addEventListener('click',()=>deleteRequest(id));
+      document.querySelectorAll('.tm-inline-edit').forEach(b=>b.addEventListener('click',()=>openEditParticipant(b.dataset.nik,b.dataset.request,Number(b.dataset.row))));
+    }
+    document.querySelectorAll('.tm-inline-view').forEach(b=>b.addEventListener('click',()=>showParticipantDetail(b.dataset.nik,b.dataset.request)));
+    $('tmDetailBackRequest')?.addEventListener('click',()=>showRequestDetail(id));
+  }
+  function setAllTraineeChecks(checked){
+    document.querySelectorAll('#tmDetailBody .tm-trainee-check').forEach(c=>{c.checked=checked;c.closest('tr')?.classList.toggle('tm-selected-row',checked);});
+    updateBulkCount();
+  }
+  function updateBulkCount(){
+    const checks=[...document.querySelectorAll('#tmDetailBody .tm-trainee-check')];
+    checks.forEach(c=>c.closest('tr')?.classList.toggle('tm-selected-row',c.checked));
+    const n=checks.filter(c=>c.checked).length;
+    if($('tmBulkCount')) $('tmBulkCount').textContent=n+' trainee selected';
+    const all=$('tmSelectAll'); if(all) all.checked=checks.length>0 && n===checks.length;
+  }
+  function selectedBulkParticipants(){
+    return [...document.querySelectorAll('#tmDetailBody .tm-trainee-check:checked')].map(c=>({
+      traineeNik:String(c.dataset.nik||'').trim(),
+      requestId:String(c.dataset.request||state.detailRequestId||'').trim()
+    })).filter(x=>x.traineeNik&&x.requestId);
+  }
+  function clearBulkSelection(){
+    setAllTraineeChecks(false);
+    if($('tmBulkStatus')) $('tmBulkStatus').value='';
+    if($('tmBulkRemarks')) $('tmBulkRemarks').value='';
+  }
+  function applyBulkUpdate(){
+    if(!canEdit)return;
+    const items=selectedBulkParticipants();
+    const status=String($('tmBulkStatus')?.value||'').trim();
+    const remarks=String($('tmBulkRemarks')?.value||'').trim();
+    if(!items.length){showToast('Pilih minimal satu trainee.');return;}
+    if(!status&&!remarks){showToast('Pilih Status atau Remarks yang akan diperbarui.');return;}
+    const btn=$('tmBulkApply');
+    if(btn){btn.disabled=true;btn.innerHTML='<span class="tm-btn-spinner"></span> Saving...';}
+    tmLoading(true,'Updating Selected Trainees...','Saving Status / Remarks to the database.');
+    scriptRun(res=>{
+      tmLoading(false);
+      if(btn){btn.disabled=false;btn.textContent='Apply to Selected';}
+      showToast(res?.message||('Updated '+items.length+' trainee.'));
+      const requestId=state.detailRequestId;
+      clearBulkSelection();
+      load(()=>{if(requestId)showRequestDetail(requestId);});
+    },err=>{
+      tmLoading(false);
+      if(btn){btn.disabled=false;btn.textContent='Apply to Selected';}
+      showToast('Bulk update gagal: '+(err?.message||String(err)));
+    }).updateTrainingParticipantsBulk(currentToken,{items,status,remarks});
+  }
+  function reloadOpenRequest(){
+    const id=state.detailRequestId;
+    tmLoading(true,'Refreshing Training Monitoring...','Loading the latest data from the database.');
+    load(()=>{tmLoading(false);if(id)showRequestDetail(id);});
+  }
+
+  function showParticipantDetail(nik,id){
+    const p=state.participants.find(x=>x['Trainee NIK']===nik&&x['Request ID']===id);if(!p)return;
+    $('tmDetailTitle').textContent=p['Trainee Name']||nik;$('tmDetailSubtitle').textContent=nik+' • '+(p['Position']||'-')+' • '+(p['Program Name']||'-');
+    const fields=['Jobsite','Departement','Training Code','Program Name','Training Unit','Training Versatility','Year','PIC Training','Position','Initial Versatility','Start Date','End Date','Posttest Score','TP Evaluation Score 1','TP Evaluation Score 2','HM Progress','Probation Hand Over','Reassesment Date','Remarks','Status','Request ID'];
+    $('tmDetailBody').innerHTML='<div class="tm-detail-grid">'+fields.map(k=>'<div><span>'+esc(k)+'</span><strong>'+esc(p[k]||'-')+'</strong></div>').join('')+'</div>'+actionButtons('participant');$('tmDetailBackdrop').classList.remove('hidden');
+    $('tmDetailBackRequest')?.addEventListener('click',()=>showRequestDetail(id));
+    if(canEdit){
+      $('tmDetailEditParticipant').onclick=()=>openEditParticipant(nik,id,p._row);
+      $('tmDetailDeleteParticipant').onclick=()=>deleteParticipant(nik,id,p._row);
+    }
+  }
+  function openEditRequest(id,row){
+    const r=state.requests.find(x=>x['Request ID']===id);if(!r||!canEdit)return;
+    const count=state.participants.filter(p=>p['Request ID']===id).length;
+    $('tmEditTitle').textContent='Edit Program Training';$('tmEditSubtitle').textContent=id+' • '+(r['Program Name']||'-');
+    const html='<input type="hidden" id="tmEditType" value="request"><input type="hidden" id="tmEditRow" value="'+r._row+'"><input type="hidden" id="tmEditRequestId" value="'+esc(id)+'"><div class="tm-edit-grid">'
+      +selectHtml('tmEditProgramType','Program Type',state.options.programTypes,r['Program Type'],'Select Program Type')
+      +selectHtml('tmEditJobsite','Jobsite',state.options.jobsites,r['Jobsite'],'Select Jobsite')
+      +inputHtml('tmEditProgramName','Program Name',r['Program Name'],'text','required')
+      +selectHtml('tmEditTrainingUnit','Training Unit',state.options.trainingUnits,r['Training Unit'],'Select Training Unit')
+      +selectHtml('tmEditTrainingVersatility','Training Versatility',state.options.trainingVersatility,r['Training Versatility'],'Select Training Versatility')
+      +selectHtml('tmEditYear','Year',state.options.years,String(r['Year']||new Date().getFullYear()),'Select Year')
+      +selectHtml('tmEditPic','PIC Training',state.options.picTraining,r['PIC Training'],'Select PIC Training')
+      +inputHtml('tmEditParticipants','Training Participants',count,'number','readonly min="0"')
+      +selectHtml('tmEditStatus','Status',selectedOrCurrent(state.options.programStatuses,r['Status']||defaultProgramStatuses[0]),r['Status'],'Select Status')
+      +'</div>';
+    $('tmEditBody').innerHTML=html;$('tmEditBackdrop').classList.remove('hidden');
+  }
+  function openEditParticipant(nik,id,row){
+    const p=state.participants.find(x=>x['Trainee NIK']===nik&&x['Request ID']===id);if(!p||!canEdit)return;
+    const codeOptions=[...new Set(state.participants.map(x=>String(x['Training Code']||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    $('tmEditTitle').textContent='Edit Trainee';$('tmEditSubtitle').textContent=nik+' • '+p['Trainee Name'];
+    const html='<input type="hidden" id="tmEditType" value="participant"><input type="hidden" id="tmEditRow" value="'+p._row+'"><input type="hidden" id="tmEditRequestId" value="'+esc(id)+'"><input type="hidden" id="tmEditNik" value="'+esc(nik)+'"><div class="tm-edit-readonly">'+esc(p['Trainee Name'])+' · '+esc(p['Position'])+' · '+esc(p['Departement'])+'</div><div class="tm-edit-grid">'
+      +selectHtml('tmEditJobsite','Jobsite',state.options.jobsites,p['Jobsite'],'Select Jobsite')
+      +selectHtml('tmEditTrainingCode','Training Code',codeOptions,p['Training Code'],'Select Training Code')
+      +inputHtml('tmEditProgramName','Program Name',p['Program Name'],'text','readonly')
+      +selectHtml('tmEditTrainingUnit','Training Unit',state.options.trainingUnits,p['Training Unit'],'Select Training Unit')
+      +selectHtml('tmEditTrainingVersatility','Training Versatility',state.options.trainingVersatility,p['Training Versatility'],'Select Training Versatility')
+      +inputHtml('tmEditPosition','Position',p['Position'],'text','readonly')
+      +selectHtml('tmEditInitialVersatility','Initial Versatility',state.options.initialVersatility,p['Initial Versatility'],'Select Initial Versatility')
+      +inputHtml('tmEditStartDate','Start Date',toInputDate(p['Start Date']),'date')
+      +inputHtml('tmEditEndDate','End Date',toInputDate(p['End Date']),'date')
+      +inputHtml('tmEditPosttest','Posttest Score',p['Posttest Score'],'number','step="any"')
+      +inputHtml('tmEditTp1','TP Evaluation Score 1',p['TP Evaluation Score 1'],'number','step="any"')
+      +inputHtml('tmEditTp2','TP Evaluation Score 2',p['TP Evaluation Score 2'],'number','step="any"')
+      +inputHtml('tmEditHm','HM Progress',p['HM Progress'],'text')
+      +inputHtml('tmEditProbation','Probation Hand Over',toInputDate(p['Probation Hand Over']),'date')
+      +inputHtml('tmEditReassessDate','Reassesment Date',toInputDate(p['Reassesment Date']),'date')
+      +selectHtml('tmEditRemarks','Remarks',state.options.remarks,p['Remarks'],'Select Remarks')
+      +selectHtml('tmEditStatus','Status',selectedOrCurrent(state.options.participantStatuses,p['Status']||defaultParticipantStatuses[0]),p['Status'],'Select Status')
+      +'</div>';
+    $('tmEditBody').innerHTML=html;
+    $('tmEditBackdrop').classList.remove('hidden');
+  }
+  function toInputDate(v){const d=parseDate(v);return d?isoLocal(d):'';}
+  function closeEdit(){$('tmEditBackdrop').classList.add('hidden');}
+  function closeDetail(){$('tmDetailBackdrop').classList.add('hidden');state.detailRequestId='';}
+  function saveEdit(){
+    if(!canEdit)return;
+    const type=$('tmEditType').value,row=Number($('tmEditRow').value),requestId=$('tmEditRequestId').value;let fn,payload;
+    if(type==='request'){
+      payload={row,requestId,programType:$('tmEditProgramType').value,jobsite:$('tmEditJobsite').value,programName:$('tmEditProgramName').value.trim(),trainingUnit:$('tmEditTrainingUnit').value,trainingVersatility:$('tmEditTrainingVersatility').value,year:$('tmEditYear').value,picTraining:$('tmEditPic').value,trainingParticipants:$('tmEditParticipants').value,status:$('tmEditStatus').value};fn='updateTrainingRequest';
+      if(!payload.programType||!payload.jobsite||!payload.programName||!payload.trainingUnit||!payload.trainingVersatility||!payload.year||!payload.picTraining||!payload.status){showToast('Lengkapi seluruh field Program Training.');return;}
+    }else{
+      payload={row,requestId,traineeNik:$('tmEditNik').value,jobsite:$('tmEditJobsite').value,trainingCode:$('tmEditTrainingCode').value,programName:$('tmEditProgramName').value,trainingUnit:$('tmEditTrainingUnit').value,trainingVersatility:$('tmEditTrainingVersatility').value,position:$('tmEditPosition').value,initialVersatility:$('tmEditInitialVersatility').value,startDate:$('tmEditStartDate').value,endDate:$('tmEditEndDate').value,posttestScore:$('tmEditPosttest').value,tpEvaluationScore1:$('tmEditTp1').value,tpEvaluationScore2:$('tmEditTp2').value,hmProgress:$('tmEditHm').value,probationHandOver:$('tmEditProbation').value,reassesmentDate:$('tmEditReassessDate').value,remarks:$('tmEditRemarks').value,status:$('tmEditStatus').value};fn='updateTrainingParticipant';
+      if(!payload.jobsite||!payload.trainingCode||!payload.trainingUnit||!payload.trainingVersatility||!payload.initialVersatility||!payload.remarks||!payload.status){showToast('Lengkapi seluruh field trainee yang diwajibkan.');return;}
+    }
+    $('tmEditSave').disabled=true;$('tmEditSave').textContent='Saving...';
+    tmLoading(true,'Saving Changes...','Writing changes to the database.');
+    scriptRun(res=>{
+      tmLoading(false);
+      $('tmEditSave').disabled=false;
+      $('tmEditSave').textContent='Save Changes';
+      closeEdit();
+      showToast(res?.message||'Data berhasil diperbarui.');
+      const openId=state.detailRequestId || requestId;
+      load(()=>{
+        if(openId){
+          showRequestDetail(openId);
+        }
+      });
+    },err=>{
+      tmLoading(false);
+      $('tmEditSave').disabled=false;
+      $('tmEditSave').textContent='Save Changes';
+      showToast(err?.message||String(err));
+    })[fn](currentToken,payload);
+  }
+  function deleteRequest(id){
+    if(!canEdit)return;
+    if(!confirm('Hapus Training Request '+id+' beserta seluruh trainee terkait? Data yang dihapus tidak dapat dikembalikan.'))return;
+    tmLoading(true,'Deleting Program Training...','Removing the program and related trainee records.');
+    scriptRun(res=>{tmLoading(false);closeDetail();showToast(res?.message||'Training Request dihapus.');load();},err=>{tmLoading(false);showToast(err?.message||String(err));}).deleteTrainingRequest(currentToken,id);
+  }
+  function deleteParticipant(nik,id,row){
+    if(!canEdit)return;
+    if(!confirm('Hapus trainee '+nik+' dari Program Training '+id+'?'))return;
+    tmLoading(true,'Deleting Trainee...','Removing trainee from this training program.');
+    scriptRun(res=>{tmLoading(false);showToast(res?.message||'Trainee dihapus.');load(()=>showRequestDetail(id));},err=>{tmLoading(false);showToast(err?.message||String(err));}).deleteTrainingParticipant(currentToken,{row,requestId:id,traineeNik:nik});
+  }
+  function load(after){
+    $('tmBody').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="loading-spinner" style="margin:auto"></div><p style="margin-top:15px">Loading monitoring data...</p></div></td></tr>';
+    scriptRun(result=>{
+      state.requests=Array.isArray(result?.requests)?result.requests:[];
+      state.participants=Array.isArray(result?.participants)?result.participants:[];
+      state.options=result?.options||state.options;
+      state.options.programStatuses=state.options.programStatuses?.length?state.options.programStatuses:defaultProgramStatuses;
+      state.options.participantStatuses=state.options.participantStatuses?.length?state.options.participantStatuses:defaultParticipantStatuses;
+      state.options.years=state.options.years?.length?state.options.years:Array.from({length:101},(_,i)=>String(2000+i));
+      state.loaded=true;$('tmUpdated').textContent='Updated '+new Date().toLocaleString('id-ID');
+      calcKpis();populateFilterOptions();renderProgramTable();if(typeof after==='function')after();
+    },err=>{tmLoading(false);$('tmBody').innerHTML='';showToast('Gagal memuat Training Monitoring: '+(err?.message||String(err)));}).getTrainingMonitoringData(currentToken);
+  }
+
+  $('tmPeriod').onchange=setFilterVisibility;
+  $('tmApply').onclick=()=>{calcKpis();};
+  $('tmSearch').oninput=e=>{state.search=e.target.value;renderProgramTable();};
+  $('tmTrainingCodeFilter').onchange=e=>{state.filters.trainingCode=e.target.value;renderProgramTable();};
+  $('tmTrainingUnitFilter').onchange=e=>{state.filters.trainingUnit=e.target.value;renderProgramTable();};
+  $('tmDetailClose').onclick=closeDetail;
+  $('tmDetailBackdrop').onclick=e=>{if(e.target===$('tmDetailBackdrop'))closeDetail();};
+  $('tmEditClose').onclick=closeEdit;$('tmEditCancel').onclick=closeEdit;$('tmEditSave').onclick=saveEdit;
+  $('tmEditBackdrop').onclick=e=>{if(e.target===$('tmEditBackdrop'))closeEdit();};
+
+  // Event delegation: controls inside the dynamic View Training modal remain functional after every re-render.
+  document.addEventListener('click',function(e){
+    const apply=e.target.closest('#tmBulkApply');
+    if(apply){e.preventDefault();e.stopPropagation();applyBulkUpdate();return;}
+    const clear=e.target.closest('#tmBulkClear');
+    if(clear){e.preventDefault();e.stopPropagation();clearBulkSelection();return;}
+  },true);
+
+  const now=new Date();
+  $('tmMonth').value=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  $('tmYear').innerHTML=Array.from({length:101},(_,i)=>{const y=2000+i;return '<option value="'+y+'">'+y+'</option>';}).join('');
+  $('tmYear').value=String(now.getFullYear());
+  $('tmWeekDate').value=isoLocal(now);$('tmFromDate').value=isoLocal(now);$('tmToDate').value=isoLocal(now);setFilterVisibility();load();
+};
+</script>

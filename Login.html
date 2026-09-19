@@ -1,0 +1,31 @@
+<div id="login-screen" class="login-screen hidden">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="login-mark">GPE</div>
+      <div><div class="login-title">N E X U S</div><div class="login-subtitle">GPE - Training Competency Nexus</div></div>
+    </div>
+    <div class="login-heading">Sign In</div>
+    <div class="login-note">One Workforce. One Standard. — Select your access role and enter your credentials.</div>
+
+    <div class="field login-field">
+      <label for="loginRole">Role</label>
+      <select id="loginRole">
+        <option value="Administrator">Administrator</option>
+        <option value="Instruktur">Trainer / Instruktur</option>
+        <option value="Guest">Guest</option>
+      </select>
+    </div>
+    <div class="field login-field" id="loginUsernameWrap">
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" autocomplete="username" placeholder="Enter username">
+    </div>
+    <div class="field login-field" id="loginPasswordWrap">
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter password">
+    </div>
+
+    <button type="button" class="btn btn-primary login-btn" id="loginBtn">Sign In</button>
+    <div id="loginError" class="login-error hidden"></div>
+    <div class="login-footer">G-NEXUS • One Workforce. One Standard.</div>
+  </div>
+</div>

@@ -1,0 +1,189 @@
+<div class="page-header about-page">
+  <div>
+    <div class="about-eyebrow">G-NEXUS • GPE TRAINING CENTER</div>
+    <h1>About G-NEXUS</h1>
+    <p id="aboutIntro">GPE - Training Competency Nexus.</p>
+  </div>
+  <div class="about-header-actions role-admin">
+    <button id="aboutEditBtn" class="btn btn-primary" type="button">✎ Edit About</button>
+  </div>
+</div>
+
+<section class="about-hero card">
+  <div class="about-hero-glow"></div>
+  <div class="about-hero-inner">
+    <div class="about-kicker">TRAINING CENTER</div>
+    <h2 id="aboutHeroTitle">G-NEXUS</h2>
+    <div id="aboutTagline" class="about-tagline">One Workforce. One Standard.</div>
+    <p id="aboutDescription">Integrated information for the GPE Training Center, competency development, and Training Center Team.</p>
+  </div>
+  <div class="about-hero-badge">
+    <span class="about-badge-dot"></span>
+    <span>Training Competency Management</span>
+  </div>
+</section>
+
+<section class="about-section-grid">
+  <article class="card about-panel">
+    <div class="about-panel-icon">◎</div>
+    <div>
+      <div class="about-panel-label">VISION</div>
+      <h3>Vision</h3>
+      <p id="aboutVision">Building a competent, adaptive, and safety-focused workforce.</p>
+    </div>
+  </article>
+
+  <article class="card about-panel">
+    <div class="about-panel-icon">◈</div>
+    <div>
+      <div class="about-panel-label">MISSION</div>
+      <h3>Mission</h3>
+      <p id="aboutMission">Delivering structured training, assessment, mentoring, and competency development.</p>
+    </div>
+  </article>
+</section>
+
+<section class="about-team-section">
+  <div class="about-team-head">
+    <div>
+      <div class="about-section-kicker">OUR PEOPLE</div>
+      <h2>Training Center Team</h2>
+      <p>Profil team yang tersimpan di <strong>Portal TC</strong>. Foto ditampilkan langsung dari link yang tersimpan pada data team.</p>
+    </div>
+    <div class="about-team-tools">
+      <span id="aboutTeamCount" class="about-team-count">0 members</span>
+      <button id="aboutAddTeamBtn" class="btn btn-primary role-admin" type="button">＋ Add Team Member</button>
+    </div>
+  </div>
+
+  <div id="aboutTeamGrid" class="about-team-grid"></div>
+</section>
+
+<!-- EDIT ABOUT CONTENT -->
+<div id="aboutEditModal" class="modal-backdrop hidden">
+  <div class="modal-card about-modal">
+    <div class="modal-header">
+      <div>
+        <div class="about-modal-eyebrow">CONTENT MANAGEMENT</div>
+        <h3>Edit About G-NEXUS</h3>
+        <p>Seluruh konten tersimpan pada spreadsheet <strong>Portal TC</strong>.</p>
+      </div>
+      <button class="icon-btn" type="button" data-about-close aria-label="Close">×</button>
+    </div>
+
+    <form id="aboutContentForm">
+      <div class="form-grid">
+        <div class="field full">
+          <label for="aboutHeroTitleInput">Hero Title</label>
+          <input id="aboutHeroTitleInput" name="heroTitle" required placeholder="G-NEXUS">
+        </div>
+
+        <div class="field full">
+          <label for="aboutTaglineInput">Tagline</label>
+          <input id="aboutTaglineInput" name="tagline" required placeholder="One Workforce. One Standard.">
+        </div>
+
+        <div class="field full">
+          <label for="aboutIntroInput">Intro</label>
+          <input id="aboutIntroInput" name="intro" required placeholder="GPE - Training Competency Nexus.">
+        </div>
+
+        <div class="field full">
+          <label for="aboutDescriptionInput">Description</label>
+          <textarea id="aboutDescriptionInput" name="description" rows="4" required></textarea>
+        </div>
+
+        <div class="field">
+          <label for="aboutVisionInput">Vision</label>
+          <textarea id="aboutVisionInput" name="vision" rows="5" required></textarea>
+        </div>
+
+        <div class="field">
+          <label for="aboutMissionInput">Mission</label>
+          <textarea id="aboutMissionInput" name="mission" rows="5" required></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-light" type="button" data-about-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save About</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ADD / EDIT TEAM MEMBER -->
+<div id="teamModal" class="modal-backdrop hidden">
+  <div class="modal-card about-modal team-modal-card">
+    <div class="modal-header">
+      <div>
+        <div class="about-modal-eyebrow">TEAM MANAGEMENT</div>
+        <h3 id="teamModalTitle">Add Team Member</h3>
+        <p>Masukkan data trainer dan link foto yang bisa diakses user G-NEXUS.</p>
+      </div>
+      <button class="icon-btn" type="button" data-team-close aria-label="Close">×</button>
+    </div>
+
+    <form id="teamForm">
+      <input type="hidden" name="id">
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="teamNameInput">Name</label>
+          <input id="teamNameInput" name="name" required placeholder="Nama Trainer">
+        </div>
+
+        <div class="field">
+          <label for="teamPositionInput">Position</label>
+          <input id="teamPositionInput" name="position" required placeholder="Trainer / Instructor">
+        </div>
+
+        <div class="field full">
+          <label for="teamPhotoUrlInput">Photo URL</label>
+          <input
+            id="teamPhotoUrlInput"
+            name="photoUrl"
+            type="url"
+            inputmode="url"
+            autocomplete="url"
+            placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=drive_link"
+          >
+          <div class="field-hint">
+            Mendukung link file Google Drive seperti <code>/file/d/FILE_ID/view</code> atau <code>open?id=FILE_ID</code>, serta direct image URL. File Drive harus dapat diakses oleh pengguna yang melihat halaman.
+          </div>
+
+          <div id="teamPhotoPreview" class="team-photo-preview hidden">
+            <img id="teamPhotoPreviewImage" src="" alt="Trainer Photo Preview">
+          </div>
+        </div>
+
+        <div class="field full">
+          <label for="teamBioInput">Bio / Description</label>
+          <textarea id="teamBioInput" name="bio" rows="4" placeholder="Ringkasan singkat tentang trainer"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="teamOrderInput">Display Order</label>
+          <input id="teamOrderInput" name="order" type="number" min="0" value="0">
+          <div class="field-hint">Nilai lebih kecil tampil lebih dahulu.</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-light" type="button" data-team-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save Team Member</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.about-page{margin-bottom:18px}.about-eyebrow,.about-section-kicker,.about-modal-eyebrow{font-size:9px;font-weight:900;letter-spacing:1.35px;color:#55708e;margin-bottom:4px}.about-page h1{margin:0;font-size:26px;letter-spacing:-.35px}.about-page p{margin:5px 0 0;color:var(--muted);font-size:11px}.about-header-actions{display:flex;gap:8px}
+.about-hero{position:relative;overflow:hidden;margin-bottom:18px;padding:34px 38px;background:linear-gradient(135deg,#0b1f3a 0%,#12365f 54%,#1c558d 100%);color:#fff;border:0;box-shadow:0 16px 34px rgba(11,31,58,.17)}.about-hero-glow{position:absolute;width:320px;height:320px;border-radius:50%;right:-120px;top:-130px;background:rgba(255,255,255,.08);filter:blur(2px)}.about-hero-inner{position:relative;z-index:1;max-width:850px}.about-kicker{font-size:10px;font-weight:900;letter-spacing:1.5px;color:#9ec5eb}.about-hero h2{margin:7px 0 4px;font-size:34px;letter-spacing:-.7px}.about-tagline{font-size:14px;font-weight:800;letter-spacing:.35px;color:#e4f0fb;margin-bottom:13px}.about-hero p{margin:0;max-width:820px;color:#dce9f6;font-size:12px;line-height:1.75}.about-hero-badge{position:absolute;right:28px;bottom:24px;z-index:1;display:flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);font-size:9px;font-weight:800;color:#eff7ff}.about-badge-dot{width:7px;height:7px;border-radius:50%;background:#a7d2f8;box-shadow:0 0 0 4px rgba(167,210,248,.1)}
+.about-section-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:26px}.about-panel{display:flex;gap:14px;padding:20px 22px;align-items:flex-start}.about-panel-icon{flex:0 0 40px;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#eef5fb;color:#22588d;font-size:17px;font-weight:800}.about-panel-label{font-size:9px;font-weight:900;letter-spacing:1.25px;color:#597692}.about-panel h3{margin:5px 0 6px;font-size:15px}.about-panel p{margin:0;color:var(--muted);font-size:11px;line-height:1.7}
+.about-team-section{margin-top:4px}.about-team-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:0 0 14px}.about-team-head h2{margin:0;font-size:20px;letter-spacing:-.25px}.about-team-head p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.6}.about-team-tools{display:flex;align-items:center;gap:10px}.about-team-count{font-size:10px;font-weight:800;color:#60758a;padding:9px 11px;border:1px solid var(--line);background:#fff;border-radius:10px}.about-team-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:15px}.about-team-card{display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}.about-team-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(15,23,42,.11);border-color:#d6e1ec}.about-team-photo{position:relative;width:100%;height:225px;background:linear-gradient(180deg,#edf3f8,#e8eef5);display:grid;place-items:center;overflow:hidden}.about-team-photo img{width:100%;height:100%;display:block;object-fit:cover}.about-team-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;height:100%;color:#7f90a3;font-size:10px;font-weight:800}.about-team-placeholder-icon{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:#dfe8f1;color:#6e8196;font-size:21px}.about-team-body{padding:16px}.about-team-name{font-size:14px;font-weight:850;color:#182235;line-height:1.35}.about-team-role{font-size:10px;color:#2a6197;font-weight:800;margin-top:4px}.about-team-bio{font-size:10.5px;line-height:1.6;color:var(--muted);margin-top:9px;min-height:36px}.about-team-actions{display:flex;gap:7px;margin-top:13px}.btn-sm{font-size:10px!important;padding:7px 9px!important}
+.about-modal{width:min(820px,100%)}.team-modal-card{width:min(850px,100%)}.field-hint{margin-top:6px;font-size:9.5px;line-height:1.5;color:var(--muted)}.field-hint code{padding:2px 4px;border-radius:4px;background:#f1f5f9;color:#42556b}.team-photo-preview{margin-top:11px;width:122px;height:154px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#f6f9fc}.team-photo-preview img{width:100%;height:100%;object-fit:cover;display:block}.team-photo-preview.hidden{display:none}
+.ev-actions-cell{display:flex;gap:7px;flex-wrap:wrap}
+@media(max-width:1000px){.about-team-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-hero-badge{position:static;width:max-content;margin-top:16px}.about-team-head{align-items:flex-start}}
+@media(max-width:700px){.about-section-grid{grid-template-columns:1fr}.about-team-grid{grid-template-columns:1fr}.about-team-head{flex-direction:column}.about-team-tools{width:100%;justify-content:space-between}.about-hero{padding:28px 22px}.about-hero h2{font-size:28px}.about-panel{padding:18px}.about-team-photo{height:250px}}
+</style>

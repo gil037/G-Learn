@@ -1,0 +1,105 @@
+<div class="page-header">
+  <div>
+    <h1>Employee Master</h1>
+    <p>Centralized employee master data sourced from the <strong>Master Data</strong> Google Sheet.</p>
+  </div>
+  <div class="employee-master-actions">
+    <button class="btn btn-light" type="button" id="emRefreshBtn">↻ Refresh</button>
+    <button class="btn btn-primary" type="button" id="emExportBtn">⇩ Export CSV</button>
+  </div>
+</div>
+
+<div class="card employee-master-card">
+  <div class="employee-master-toolbar">
+    <div class="em-search-wrap">
+      <span class="em-search-icon">⌕</span>
+      <input id="emSearchInput" class="em-search" type="search" placeholder="Search employee, NIK, department, position, phone, email, and more..." autocomplete="off">
+      <button id="emClearSearch" class="em-clear-search" type="button" title="Clear search">×</button>
+    </div>
+    <div class="employee-master-toolbar-right">
+      <label class="em-page-size-label">Rows</label>
+      <select id="emPageSize" class="em-select small-select">
+        <option value="10">10</option>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+      <button class="btn btn-light" type="button" id="emFilterToggle">⚲ Filters</button>
+    </div>
+  </div>
+
+  <div id="emFilterPanel" class="em-filter-panel hidden">
+    <div class="em-filter-head">
+      <div>
+        <strong>Advanced Filters</strong>
+        <div class="em-filter-help">Filter employee records using any column from the Master Data header.</div>
+      </div>
+      <button class="btn btn-light" type="button" id="emResetFilters">Reset Filters</button>
+    </div>
+    <div id="emFilterRows" class="em-filter-rows"></div>
+    <div class="em-filter-actions">
+      <button class="btn btn-primary" type="button" id="emApplyFilters">Apply Filters</button>
+      <button class="btn btn-light" type="button" id="emAddFilter">+ Add Filter</button>
+    </div>
+  </div>
+
+  <div class="employee-master-meta">
+    <div><strong id="emResultCount">0</strong> records shown</div>
+    <div id="emSourceStatus" class="em-source-status">Loading Master Data...</div>
+  </div>
+
+  <div class="table-wrap employee-table-wrap">
+    <table id="employeeMasterTable" class="employee-master-table">
+      <thead id="employeeMasterHead"></thead>
+      <tbody id="employeeMasterBody"></tbody>
+    </table>
+  </div>
+
+  <div id="emEmptyState" class="empty-state hidden">
+    <div class="empty-icon">⌕</div>
+    <h3>No Employee Records Found</h3>
+    <p>Try changing the search keyword or filter criteria.</p>
+  </div>
+
+  <div class="employee-pagination">
+    <div id="emPageInfo">Page 1 of 1</div>
+    <div class="employee-pagination-buttons">
+      <button class="btn btn-light" type="button" id="emPrevPage">‹ Previous</button>
+      <button class="btn btn-light" type="button" id="emNextPage">Next ›</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.employee-master-actions{display:flex;gap:8px;flex-wrap:wrap}
+.employee-master-toolbar{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.employee-master-toolbar-right{display:flex;align-items:center;gap:8px}
+.em-search-wrap{position:relative;flex:1;min-width:300px;max-width:760px}
+.em-search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#7890aa;font-size:18px;pointer-events:none}
+.em-search{width:100%;border:1px solid var(--line);background:#fff;border-radius:10px;padding:11px 38px 11px 36px;font:inherit;font-size:12px;outline:none}
+.em-search:focus{border-color:#92b7df;box-shadow:0 0 0 3px #eaf3fc}
+.em-clear-search{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#8b99aa;cursor:pointer;font-size:18px;line-height:1;padding:3px 6px}
+.em-select{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 10px;font:inherit;font-size:12px;color:var(--text)}
+.small-select{min-width:70px}
+.em-page-size-label{font-size:11px;color:var(--muted);font-weight:700}
+.em-filter-panel{padding:16px 18px;background:#fbfcfe;border-bottom:1px solid var(--line)}
+.em-filter-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+.em-filter-help{font-size:11px;color:var(--muted);margin-top:3px}
+.em-filter-rows{display:grid;gap:8px}
+.em-filter-row{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(150px,.8fr) minmax(180px,1fr) 42px;gap:8px;align-items:center}
+.em-filter-row select,.em-filter-row input{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:#fff;font:inherit;font-size:12px;outline:none}
+.em-filter-row input:focus,.em-filter-row select:focus{border-color:#92b7df;box-shadow:0 0 0 3px #eaf3fc}
+.em-remove-filter{width:38px;height:38px;border:1px solid #ead7d4;background:#fff5f3;color:var(--danger);border-radius:9px;cursor:pointer}
+.em-filter-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.employee-master-meta{display:flex;justify-content:space-between;gap:12px;padding:11px 18px;background:#fafbfd;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+.em-source-status{font-weight:700}
+.employee-table-wrap{max-height:calc(100vh - 330px);overflow:auto}
+.employee-master-table{min-width:3200px}
+.employee-master-table th{position:sticky;top:0;z-index:2}
+.employee-master-table th:first-child,.employee-master-table td:first-child{position:sticky;left:0;z-index:3;background:#fff}
+.employee-master-table th:first-child{z-index:4;background:#fafbfd}
+.employee-master-table tbody tr:hover td:first-child{background:#fbfdff}
+.employee-pagination{display:flex;justify-content:space-between;align-items:center;padding:13px 18px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
+.employee-pagination-buttons{display:flex;gap:8px}
+@media (max-width:850px){.em-search-wrap{min-width:100%;max-width:none}.employee-table-wrap{max-height:none}.em-filter-row{grid-template-columns:1fr}.em-remove-filter{width:100%}.employee-pagination{align-items:flex-start;flex-direction:column;gap:10px}}
+</style>
